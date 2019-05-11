@@ -1,0 +1,79 @@
+name: classy-prelude-template
+version: 1.0.0.0
+synopsis: Template for using classy prelude
+github: TBillTech/classy-prelude-template
+homepage: https://github.com/TBillTech/classy-prelude-template
+ghc-options: -Wall -O2
+
+tests:
+  classy-prelude-template-test:
+    main: Main.hs
+    source-dirs:
+      - test
+    dependencies:
+      - classy-prelude-template
+      - QuickCheck
+      
+library:
+  source-dirs:
+    - src
+  generated-exposed-modules:
+    - ClassyPreludeTemplateLib
+    
+executables:
+  classy-prelude-template-exe:
+    main: Main.hs
+    source-dirs:
+      - app
+    dependencies:
+      - classy-prelude-template
+      
+dependencies:
+  - base
+  - base-noprelude
+  - classy-prelude
+  - mtl
+  - optparse-applicative
+  - singletons
+  #Needed for Text.Read
+  - text
+  - time
+  - transformers
+      
+default-extensions:
+  - ApplicativeDo
+  - BangPatterns
+  - ConstraintKinds
+  - DataKinds
+  - DefaultSignatures
+  - DeriveFoldable
+  - DeriveFunctor
+  - DeriveGeneric
+  - DeriveLift
+  - DeriveTraversable
+  - DerivingStrategies
+  - EmptyCase
+  - ExistentialQuantification
+  - FlexibleContexts
+  - FlexibleInstances
+  - FunctionalDependencies
+  - GADTs
+  - GeneralizedNewtypeDeriving
+  - InstanceSigs
+  - KindSignatures
+  - LambdaCase
+  - MultiParamTypeClasses
+  - MultiWayIf
+  - NamedFieldPuns
+  - NoImplicitPrelude
+  - OverloadedLists
+  - OverloadedStrings
+  - PatternSynonyms
+  - RankNTypes
+  - ScopedTypeVariables
+  - StandaloneDeriving
+  - TupleSections
+  - TypeApplications
+  - TypeFamilies
+  - TypeFamilyDependencies
+  - TypeOperators
