@@ -1,6 +1,4 @@
-# classy-prelude-template
-Uses classy prelude plus a lot of more modern extensions by default.
+# biproductions
+This library is intended to support creating production rules for two languages together.  Another way to say this is that the biproduction templates cover a domain (language) I while simultaneously labelling the values from that domain in language R.
 
-This is intended to be compiled by stack build. The python notebook is for using with https://github.com/TBillTech/pexpect_kernel. 
-
-Yes, the python notebook can really load up the classy prelude and use the language extensions since it is using ghci in the background.
+The biproduction library is implemented in Haskell, with applications written in ghci jupyter notebooks.
