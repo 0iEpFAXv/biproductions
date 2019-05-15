@@ -1,7 +1,7 @@
 module Main where
 
 import ClassyPrelude
-import ClassyPreludeTemplateLib
+import BiProductionsLib
 
 main :: IO ()
 main = do

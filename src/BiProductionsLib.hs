@@ -1,4 +1,4 @@
-module ClassyPreludeTemplateLib
+module BiProductionsLib
     ( testMessage
     ) where
 

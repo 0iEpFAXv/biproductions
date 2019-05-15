@@ -1,32 +1,33 @@
-name: classy-prelude-template
+name: biproductions
 version: 1.0.0.0
-synopsis: Template for using classy prelude
-github: TBillTech/classy-prelude-template
-homepage: https://github.com/TBillTech/classy-prelude-template
+synopsis: Produce Language I with labels in Language R
+github: 0iEpFAXv/biproductions.git
+homepage: https://github.com/0iEpFAXv/biproductions.git
 ghc-options: -Wall -O2
 
 tests:
-  classy-prelude-template-test:
+  biproductions-test:
     main: Main.hs
     source-dirs:
       - test
+    buildable: True
     dependencies:
-      - classy-prelude-template
+      - biproductions
       - QuickCheck
       
 library:
   source-dirs:
     - src
   generated-exposed-modules:
-    - ClassyPreludeTemplateLib
+    - BiProductionsLib
     
 executables:
-  classy-prelude-template-exe:
+  biproductions-exe:
     main: Main.hs
     source-dirs:
       - app
     dependencies:
-      - classy-prelude-template
+      - biproductions
       
 dependencies:
   - base

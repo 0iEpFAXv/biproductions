@@ -1,6 +1,6 @@
 module Main where
 
-import ClassyPreludeTemplateLib()
+import BiProductionsLib()
 import Test.QuickCheck
 import ClassyPrelude
 

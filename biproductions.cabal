@@ -1,0 +1,86 @@
+cabal-version: 2.0
+
+-- This file has been generated from package.yaml by hpack version 0.31.1.
+--
+-- see: https://github.com/sol/hpack
+--
+-- hash: 4b2980585decf12734dfcd726d91c206ef34fa4c77e0ff94e9a147a1e17e2caa
+
+name:           biproductions
+version:        1.0.0.0
+synopsis:       Produce Language I with labels in Language R
+homepage:       https://github.com/0iEpFAXv/biproductions.git
+bug-reports:    https://github.com/0iEpFAXv/biproductions.git/issues
+build-type:     Simple
+
+source-repository head
+  type: git
+  location: https://github.com/0iEpFAXv/biproductions.git
+
+library
+  exposed-modules:
+      BiProductionsLib
+  other-modules:
+      Paths_biproductions
+  autogen-modules:
+      BiProductionsLib
+  hs-source-dirs:
+      src
+  default-extensions: ApplicativeDo BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFoldable DeriveFunctor DeriveGeneric DeriveLift DeriveTraversable DerivingStrategies EmptyCase ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedLists OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables StandaloneDeriving TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators
+  ghc-options: -Wall -O2
+  build-depends:
+      base
+    , base-noprelude
+    , classy-prelude
+    , mtl
+    , optparse-applicative
+    , singletons
+    , text
+    , time
+    , transformers
+  default-language: Haskell2010
+
+executable biproductions-exe
+  main-is: Main.hs
+  other-modules:
+      Paths_biproductions
+  hs-source-dirs:
+      app
+  default-extensions: ApplicativeDo BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFoldable DeriveFunctor DeriveGeneric DeriveLift DeriveTraversable DerivingStrategies EmptyCase ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedLists OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables StandaloneDeriving TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators
+  ghc-options: -Wall -O2
+  build-depends:
+      base
+    , base-noprelude
+    , biproductions
+    , classy-prelude
+    , mtl
+    , optparse-applicative
+    , singletons
+    , text
+    , time
+    , transformers
+  default-language: Haskell2010
+
+test-suite biproductions-test
+  type: exitcode-stdio-1.0
+  main-is: Main.hs
+  other-modules:
+      Paths_biproductions
+  hs-source-dirs:
+      test
+  default-extensions: ApplicativeDo BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFoldable DeriveFunctor DeriveGeneric DeriveLift DeriveTraversable DerivingStrategies EmptyCase ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedLists OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables StandaloneDeriving TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators
+  ghc-options: -Wall -O2
+  build-depends:
+      QuickCheck
+    , base
+    , base-noprelude
+    , biproductions
+    , classy-prelude
+    , mtl
+    , optparse-applicative
+    , singletons
+    , text
+    , time
+    , transformers
+  buildable: True
+  default-language: Haskell2010
