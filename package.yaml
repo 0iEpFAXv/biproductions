@@ -36,6 +36,8 @@ dependencies:
   - mtl
   - optparse-applicative
   - singletons
+  - containers
+  - vector
   #Needed for Text.Read
   - text
   - time

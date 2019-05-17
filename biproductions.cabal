@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4b2980585decf12734dfcd726d91c206ef34fa4c77e0ff94e9a147a1e17e2caa
+-- hash: a55bfc736a20ae63b387eb5d90cab3a68a403d092a610b85fe20fe2cc5584af2
 
 name:           biproductions
 version:        1.0.0.0
@@ -32,12 +32,14 @@ library
       base
     , base-noprelude
     , classy-prelude
+    , containers
     , mtl
     , optparse-applicative
     , singletons
     , text
     , time
     , transformers
+    , vector
   default-language: Haskell2010
 
 executable biproductions-exe
@@ -53,12 +55,14 @@ executable biproductions-exe
     , base-noprelude
     , biproductions
     , classy-prelude
+    , containers
     , mtl
     , optparse-applicative
     , singletons
     , text
     , time
     , transformers
+    , vector
   default-language: Haskell2010
 
 test-suite biproductions-test
@@ -76,11 +80,13 @@ test-suite biproductions-test
     , base-noprelude
     , biproductions
     , classy-prelude
+    , containers
     , mtl
     , optparse-applicative
     , singletons
     , text
     , time
     , transformers
+    , vector
   buildable: True
   default-language: Haskell2010

@@ -1,22 +1,25 @@
 module BiProductionsLib
     ( testMessage,
-      AbstractTime, Tenses, InputWord, InputSentence,
-      WordId, TenseId, Object, AnalogyValue, Analogy, Sentence, RParagraph,
+      AbstractTime (NTMinusInfinity, NTMinus, NTMinusDelta, NTPast, NTNow, NTFuture, NTPlusDelta, NTPlus, NTPlusInfinity), 
+      Tenses, InputWord(InputText, InputTime, InputRelativeTime), InputSentence,
+      WordId, TenseId, Modifier(Modifier), Analogy(Analogy), Sentence(Sentence),
       OneHotCaps(ohcWords, ohcTenses), defaultOneHotCaps, wordOrdinals, padOrdinals,
-      encodeOneHot
+      encodeBitList, decodeBitList, decodeBitVector,
+      encodeOneHotInput, encodeOneHotOutput, encodeOneHotOutputWord, decodeOneHotOutput, getBitGroups,
+      decodeOneHotTense, decodeEncodeOneHotOutput,
+      TenseBitGroup(TenseBitGroup), WordBitGroup(WordBitGroup), buildTenses
     ) where
 
 import ClassyPrelude
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vector
 import qualified Data.Char as Char
-import Numeric (showIntAtBase)
 
 testMessage :: Text
 testMessage = "Hello World"
 
 data AbstractTime = NTMinusInfinity | NTMinus | NTMinusDelta 
-                  | NTRelative Double | NTNow | NTDate UTCTime 
+                  | NTPast | NTNow | NTFuture
                   | NTPlusDelta | NTPlus | NTPlusInfinity 
                   deriving (Eq, Read, Show)
 type Tenses = Vector (AbstractTime, AbstractTime)
@@ -26,37 +29,36 @@ type InputSentence = Vector InputWord
 
 type WordId = Int
 type TenseId = Int
-data Object = Object WordId | ModifiedObject WordId Object deriving (Eq, Read, Show)
-type Objects = Vector Object
-data AnalogyValue = AnalogyValue WordId | ModifiedAnalogyValue WordId AnalogyValue 
-                    deriving (Eq, Read, Show)
-data Analogy = Analogy TenseId WordId WordId AnalogyValue deriving (Eq, Read, Show)
+data Modifier = Modifier WordId WordId deriving (Eq, Read, Show)
+type Modifiers = Vector Modifier
+data Analogy = Analogy TenseId WordId WordId WordId deriving (Eq, Read, Show)
 type Analogies = Vector Analogy
-data Sentence = Sentence InputSentence Tenses Objects Analogies deriving (Eq, Read, Show)
-type RParagraph = [Sentence] 
+data Sentence = Sentence Tenses Modifiers Analogies deriving (Eq, Read, Show)
 
 data OneHotCaps = OneHotCaps { ohcWords :: Int, ohcTenses :: Int }
 defaultOneHotCaps :: OneHotCaps
 defaultOneHotCaps = OneHotCaps { ohcWords = 64, ohcTenses = 2}
 
-encodeOneHot :: [Text] -> OneHotCaps -> Sentence -> Either Text ([Int], [Int])
-encodeOneHot dictionary caps s = do
-    input <- encodeOneHotInput dictionary caps s
-    output <- encodeOneHotOutput caps s
-    return (input, output)
-
 type WordOrdinals = Text -> ([Int], [Int])
 
-binaryValue :: Int -> [Int]
-binaryValue n = map charToInteger (showIntAtBase 2 intToChar n "")
-    where charToInteger '0' = 0
-          charToInteger _ = 1
-          intToChar 0 = '0'
-          intToChar _ = '1'
+encodeBitList :: Int -> [Int]
+encodeBitList = reverse . ebv
+    where ebv 0 = []
+          ebv n = (n `mod` 2) : ebv (n `div` 2)
+
+decodeBitList :: [Int] -> Int
+decodeBitList vec = decodeReverseBitList 0 0 $ reverse vec
+    where decodeReverseBitList :: Int -> Int -> [Int] -> Int
+          decodeReverseBitList _ s [] = s
+          decodeReverseBitList power s (v:rest) = 
+              decodeReverseBitList (power+1) (s+2^power*v) rest
+
+decodeBitVector :: Vector Int -> Int
+decodeBitVector vec = decodeBitList $ Vector.toList vec
 
 wordOrdinals :: [Text] -> WordOrdinals
 wordOrdinals dictionary = lookUps
-    where binaryValues = map binaryValue [1..]
+    where binaryValues = map encodeBitList [1..]
           indexedSet l = Map.fromAscList $ zip (sort l) binaryValues
           s = indexedSet (map toLower dictionary)
           rs = indexedSet (map (toLower . reverse) dictionary)
@@ -73,15 +75,15 @@ padOrdinals fl sl ordinals = newOrdinals
     where newOrdinals = pad . ordinals
           pad (f,s) = (padOrdinal fl f, padOrdinal sl s)
 
-encodeOneHotInput :: [Text] -> OneHotCaps -> Sentence -> Either Text [Int]
+encodeOneHotInput :: [Text] -> OneHotCaps -> InputSentence -> Either Text [Int]
 encodeOneHotInput dictionary = encodeOneHotInputWords (padOrdinals 16 8 (wordOrdinals dictionary)) 0
 
-encodeOneHotInputWords :: WordOrdinals -> Int -> OneHotCaps -> Sentence -> Either Text [Int]
+encodeOneHotInputWords :: WordOrdinals -> Int -> OneHotCaps -> InputSentence -> Either Text [Int]
 encodeOneHotInputWords ordinals wordId caps s 
     | wordId >= ohcWords caps = return []
     | otherwise = do
         let word = getWordFromSentence s wordId
-            paddedWord = padOrdinal (ohcWords caps) $ binaryValue wordId
+            paddedWord = padOrdinal (ohcWords caps) $ encodeBitList wordId
         wordBlock <- encodeOneHotInputWord ordinals word paddedWord
         rest <- encodeOneHotInputWords ordinals (wordId+1) caps s
         return (wordBlock ++ rest)
@@ -92,10 +94,9 @@ getWordText (Just (InputText t)) = t
 getWordText (Just (InputTime t _)) = t
 getWordText (Just (InputRelativeTime t _)) = t
 
-getWordFromSentence :: Sentence -> Int -> Maybe InputWord
-getWordFromSentence (Sentence is _ _ _) wordId = is Vector.!? wordId
+getWordFromSentence :: InputSentence -> Int -> Maybe InputWord
+getWordFromSentence is wordId = is Vector.!? wordId
 
--- Input: (29 + log_2 wordCap)*wordCap = 2176
 --   wordCap blocks of:
 --     1 bit: is present
 --     1 bit: is capitalized
@@ -118,7 +119,6 @@ encodeOneHotInputWord ordinals mInputWord paddedWord = do
     return $ [present,capital,time] ++ ordF ++ ordR ++ paddedWord
    
 
--- Output: tensesCap*19 + wordCap*(5 + log_2 tensesCap + log_2 wordCap) = 
 encodeOneHotOutput :: OneHotCaps -> Sentence -> Either Text [Int]
 encodeOneHotOutput caps s = do
     tenses <- encodeOneHotTenses caps s 0
@@ -126,13 +126,13 @@ encodeOneHotOutput caps s = do
     return $ tenses ++ encodedWords
     
 --   tensesCap blocks of:
---     9 bit: select AbstractTime start
---     9 bit: select AbstractTime end
+--     7 bit: select AbstractTime start
+--     7 bit: select AbstractTime end
 encodeOneHotTenses :: OneHotCaps -> Sentence -> Int -> Either Text [Int]
 encodeOneHotTenses caps s tenseId
     | tenseId >= ohcTenses caps = return []
     | otherwise = do
-        let getSentenceTense (Sentence _ tenses _ _) = tenses Vector.!? tenseId
+        let getSentenceTense (Sentence tenses _ _) = tenses Vector.!? tenseId
             propMaybe (Just (t1, t2)) = (Just t1, Just t2)
             propMaybe _ = (Nothing, Nothing)
             (mTenseStart, mTenseEnd) = propMaybe $ getSentenceTense s
@@ -142,16 +142,30 @@ encodeOneHotTenses caps s tenseId
         return $ tenseStart ++ tenseEnd ++ rest
     
 encodeOneHotTense :: Maybe AbstractTime -> [Int]
-encodeOneHotTense Nothing = [0,0,0,0,0,0,0,0,0]
+encodeOneHotTense Nothing =                [0,0,0,0,0,0,0,0,0]
 encodeOneHotTense (Just NTMinusInfinity) = [1,0,0,0,0,0,0,0,0]
-encodeOneHotTense (Just NTMinus) = [0,1,0,0,0,0,0,0,0]
-encodeOneHotTense (Just NTMinusDelta) = [0,0,1,0,0,0,0,0,0]
-encodeOneHotTense (Just (NTRelative _)) = [0,0,0,1,0,0,0,0,0]
-encodeOneHotTense (Just NTNow) = [0,0,0,0,1,0,0,0,0]
-encodeOneHotTense (Just (NTDate _)) = [0,0,0,0,0,1,0,0,0]
-encodeOneHotTense (Just NTPlusDelta) = [0,0,0,0,0,0,1,0,0]
-encodeOneHotTense (Just NTPlus) = [0,0,0,0,0,0,0,1,0]
-encodeOneHotTense (Just NTPlusInfinity) = [0,0,0,0,0,0,0,0,1]
+encodeOneHotTense (Just NTMinus) =         [0,1,0,0,0,0,0,0,0]
+encodeOneHotTense (Just NTMinusDelta) =    [0,0,1,0,0,0,0,0,0]
+encodeOneHotTense (Just NTPast) =          [0,0,0,1,0,0,0,0,0]
+encodeOneHotTense (Just NTNow) =           [0,0,0,0,1,0,0,0,0]
+encodeOneHotTense (Just NTFuture) =        [0,0,0,0,0,1,0,0,0]
+encodeOneHotTense (Just NTPlusDelta) =     [0,0,0,0,0,0,1,0,0]
+encodeOneHotTense (Just NTPlus) =          [0,0,0,0,0,0,0,1,0]
+encodeOneHotTense (Just NTPlusInfinity) =  [0,0,0,0,0,0,0,0,1]
+
+decodeOneHotTense :: Vector Int -> Maybe AbstractTime
+decodeOneHotTense bits = decodeOneHotTenseId $ Vector.findIndex (== 1) bits
+decodeOneHotTenseId :: Maybe Int -> Maybe AbstractTime
+decodeOneHotTenseId (Just 0) = Just NTMinusInfinity
+decodeOneHotTenseId (Just 1) = Just NTMinus
+decodeOneHotTenseId (Just 2) = Just NTMinusDelta
+decodeOneHotTenseId (Just 3) = Just NTPast
+decodeOneHotTenseId (Just 4) = Just NTNow
+decodeOneHotTenseId (Just 5) = Just NTFuture
+decodeOneHotTenseId (Just 6) = Just NTPlusDelta
+decodeOneHotTenseId (Just 7) = Just NTPlus
+decodeOneHotTenseId (Just 8) = Just NTPlusInfinity
+decodeOneHotTenseId _ =        Nothing
 
 --NTMinusInfinity | NTMinus | NTMinusDelta 
 --                  | NTRelative Double | NTNow | NTDate UTCTime 
@@ -159,13 +173,12 @@ encodeOneHotTense (Just NTPlusInfinity) = [0,0,0,0,0,0,0,0,1]
 
 --   wordCap blocks of:
 --     1 bit: is present
---     1 bit: is modifier
 --     1 bit: is subject
 --     1 bit: is object
 --     1 bit: is analogy
 --     log_2 tensesCap bits: select tense
 --     log_2 wordCap bits: referent word id
---       Notes: For modifier, referent word id refers to object or analogy that is being modified
+--       Notes: For modifier, referent word id refers to modifier, object or analogy that is being modified
 --              For subject, referent word id refers to subject
 --              For object, referent word id refers to subject
 --              For analogy, referent word id refers to object
@@ -178,22 +191,8 @@ encodeOneHotOutputWords caps s wordId
         return (wordBlock ++ rest)
         
 encodeOneHotOutputWord :: OneHotCaps -> Sentence -> Int -> Either Text [Int]
-encodeOneHotOutputWord caps (Sentence sentence _ objects analogies) wordId = 
-    let present = if wordId >= length sentence then 0 else 1
-        
-        isObjectModifier (Object _) = False
-        isObjectModifier (ModifiedObject m o) 
-            | m == wordId = True
-            | otherwise = isObjectModifier o
-        hasObjectModifier = Vector.any isObjectModifier objects
-        isAnalogyValueModifier (AnalogyValue _) = False
-        isAnalogyValueModifier (ModifiedAnalogyValue m a) 
-            | m == wordId = True
-            | otherwise = isAnalogyValueModifier a                                                           
-        isAnalogyModifier (Analogy _ _ _ analogyValue) = isAnalogyValueModifier analogyValue
-        hasAnalogyModifier = Vector.any isAnalogyModifier analogies
-        hasModifier = hasObjectModifier || hasAnalogyModifier
-        modifier = if hasModifier then 1 else 0
+encodeOneHotOutputWord caps (Sentence _ modifiers analogies) wordId = 
+    let present = if Vector.any isModifier modifiers then 1 else 0
         
         isSubject (Analogy _ s _ _) = s == wordId
         isAnySubject = Vector.any isSubject analogies
@@ -203,40 +202,108 @@ encodeOneHotOutputWord caps (Sentence sentence _ objects analogies) wordId =
         isAnyObject = Vector.any isObject analogies
         object = if isAnyObject then 1 else 0
 
-        isAnalogyValue (AnalogyValue analogyValue) = analogyValue == wordId
-        isAnalogyValue (ModifiedAnalogyValue _ a) = isAnalogyValue a
-        isAnalogy (Analogy _ _ _ analogyValue) = isAnalogyValue analogyValue
+        isAnalogy (Analogy _ _ _ a) = a == wordId
         isAnyAnalogy = Vector.any isAnalogy analogies
         analogy = if isAnyAnalogy then 1 else 0
         
         findTense = maybe 0 (\(Analogy tId _ _ _) -> tId) $ Vector.find isAnalogy analogies
         tenseId = if isAnyAnalogy then findTense else 0
-        tense = padOrdinal (ohcTenses caps) (binaryValue tenseId)
-        
-        getObject Nothing = Nothing
-        getObject (Just (ModifiedObject _ o)) = getObject (Just o)
-        getObject (Just (Object o)) = Just o
-        findReferentOfObjectModifier = getObject $ Vector.find isObjectModifier objects
-        getAnalogyValue (AnalogyValue a) = a
-        getAnalogyValue (ModifiedAnalogyValue _ a) = getAnalogyValue a
-        getAnalogy Nothing = Nothing
-        getAnalogy (Just (Analogy _ _ _ analogyValue)) = Just $ getAnalogyValue analogyValue
-        findReferentOfAnalogyModifier = getAnalogy $ Vector.find isAnalogyModifier analogies
-        findReferentOfSubject = if isAnySubject then Just wordId else Nothing
-        getSubject Nothing = Nothing
-        getSubject (Just (Analogy _ s _ _)) = Just s
-        findReferentOfObject = getSubject $ Vector.find isObject analogies
-        getAnalogyObject Nothing = Nothing
-        getAnalogyObject (Just (Analogy _ _ o _)) = Just o
-        findReferentOfAnalogy = getAnalogyObject $ Vector.find isAnalogy analogies
-        finders = [findReferentOfObjectModifier, 
-                   findReferentOfAnalogyModifier,
-                   findReferentOfSubject,
-                   findReferentOfObject,
-                   findReferentOfAnalogy]
-        findReferentId = listToMaybe $ catMaybes finders
-        referentId = fromMaybe 0 findReferentId
-        referent = padOrdinal (ohcWords caps) (binaryValue referentId)
-    in return $ [present, modifier, subject, object, analogy] ++ tense ++ referent
+        tense = padOrdinal (ohcTenses caps) (encodeBitList tenseId)
 
+        getReferent Nothing = wordId 
+        getReferent (Just (Modifier _ r)) = r
+        isModifier (Modifier m _) = m == wordId
+        referentId = getReferent $ Vector.find isModifier modifiers
+        referent = padOrdinal (ohcWords caps) (encodeBitList referentId)
+    in return $ [present, subject, object, analogy] ++ tense ++ referent
+
+data WordBitGroup = WordBitGroup Int Int Int Int Int (Vector Int) (Vector Int) deriving (Eq, Show, Read)
+data TenseBitGroup = TenseBitGroup (Vector Int) (Vector Int) deriving (Eq, Show, Read)
+
+bitSplitWE :: Int -> Vector Int -> Either Text (Vector Int, Vector Int)
+bitSplitWE splitPoint bits = 
+    let (a,b) = Vector.splitAt splitPoint bits
+    in if Vector.length a < splitPoint then Left "Not Enough bits!" else return (a,b) 
+
+oneBitWE :: Vector Int -> Either Text (Int, Vector Int)
+oneBitWE v | Vector.length v == 0 = Left "Not enough bits to decode one bit"
+           | otherwise = 
+               let (oneBit, rest) = Vector.splitAt 1 v
+               in return (fromMaybe 0 (oneBit Vector.!? 0), rest)
+
+getTenseGroups :: OneHotCaps -> Vector Int -> Int -> Vector TenseBitGroup 
+                  -> Either Text (Vector TenseBitGroup, Vector Int)
+getTenseGroups caps bits tenseId groups 
+    | tenseId >= ohcTenses caps = return (reverse groups, bits)
+    | otherwise = do
+        let tenseLength = length $ encodeOneHotTense Nothing
+        (tenseBits, rest) <- bitSplitWE (tenseLength * ohcTenses caps) bits
+        (startBits, endBits) <- bitSplitWE tenseLength tenseBits
+        getTenseGroups caps rest (tenseId+1) 
+            $ Vector.cons (TenseBitGroup startBits endBits) groups
+
+getWordGroups :: OneHotCaps -> Vector Int -> Int -> Vector WordBitGroup
+                 -> Either Text (Vector WordBitGroup, Vector Int)
+getWordGroups caps bits wordId groups
+    | wordId >= ohcWords caps = return (reverse groups, bits)
+    | otherwise = do
+        let log2 r 1 = r
+            log2 r n = log2 (r+1) (n `div` 2)
+            log2Tenses = log2 0 $ ohcTenses caps
+            log2Words = log2 0 $ ohcWords caps
+            wordGroupSize = 4 + log2Tenses + log2Words
+        (wordBits, rest) <- bitSplitWE wordGroupSize bits
+        (present, wordRest) <- oneBitWE wordBits
+        (subject, wordRest') <- oneBitWE wordRest
+        (object, wordRest'') <- oneBitWE wordRest'
+        (analogy, wordRest''') <- oneBitWE wordRest''
+        (tenseId, referentId) <- bitSplitWE log2Tenses wordRest'''
+        getWordGroups caps rest (wordId+1)
+            $ Vector.cons (WordBitGroup wordId present subject object analogy tenseId referentId) groups
         
+
+getBitGroups :: OneHotCaps -> Vector Int -> Either Text (Vector TenseBitGroup, Vector WordBitGroup)
+getBitGroups caps bits = do
+    (tenses, remainder) <- getTenseGroups caps bits 0 Vector.empty
+    (wordGroups, _) <- getWordGroups caps remainder 0 Vector.empty
+    return (tenses, wordGroups)
+
+buildTenses :: Vector TenseBitGroup -> Vector (AbstractTime, AbstractTime)
+buildTenses = Vector.map buildTense
+    where buildTense (TenseBitGroup tenseStart tenseEnd) =
+              (fromMaybe NTNow $ decodeOneHotTense tenseStart, fromMaybe NTNow $ decodeOneHotTense tenseEnd)
+
+buildModifiers :: Vector WordBitGroup -> Vector Modifier
+buildModifiers = Vector.map buildModifier
+    where buildModifier (WordBitGroup wId _ _ _ _ _ rId) = 
+              Modifier wId $ decodeBitVector rId
+
+buildAnalogies :: Vector WordBitGroup -> Vector Analogy
+buildAnalogies groups = Vector.map buildAnalogy $ Vector.filter isAnalogy groups
+    where isAnalogy (WordBitGroup _ _ _ _ a _ _) = a == 1
+          buildAnalogy (WordBitGroup wordId _ _ _ _ tenseBits objectBits) = 
+              Analogy tenseId subjectId objectId wordId
+                  where tenseId = decodeBitVector tenseBits
+                        objectId = decodeBitVector objectBits
+                        isObject (WordBitGroup wId _ _ _ _ _ _) = wId == objectId 
+                        getReferent Nothing = 0
+                        getReferent (Just (WordBitGroup _ _ _ _ _ _ rId)) = decodeBitVector rId
+                        subjectId = getReferent $ Vector.find isObject groups
+
+decodeOneHotOutput :: OneHotCaps -> Vector Int -> Either Text Sentence
+decodeOneHotOutput caps bits = do
+    (tenseGroups, wordGroups) <- getBitGroups caps bits
+    let isValidTense (TenseBitGroup s e) = isJust (decodeOneHotTense s) && isJust (decodeOneHotTense e)
+        tenses = buildTenses $ Vector.filter isValidTense tenseGroups
+        isPresent (WordBitGroup _ p _ _ _ _ _) = p == 1
+        modifiers = buildModifiers $ Vector.filter isPresent wordGroups
+        analogies = buildAnalogies wordGroups
+    return $ Sentence tenses modifiers analogies
+    
+decodeEncodeOneHotOutput :: OneHotCaps -> Sentence -> Either Text (Sentence, Bool)
+decodeEncodeOneHotOutput caps s = do
+    encoding <- encodeOneHotOutput caps s
+    rs <- decodeOneHotOutput caps (Vector.fromList encoding)
+    return (rs, rs == s)
+    
+    
