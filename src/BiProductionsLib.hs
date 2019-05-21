@@ -10,6 +10,7 @@ module BiProductionsLib
       decodeOneHotTense, decodeEncodeOneHotOutput,
       TenseBitGroup(TenseBitGroup), WordBitGroup(WordBitGroup), buildTenses,
       BasicPhrase, LinearPhrase, Phrase(SubjectP, ConjunctionP, AnalogyObjectP),
+      PhraseCode(SubjectCode, ConjunctionCode, AnalogyObjectCode), 
       generateSentence, Linearizer
     ) where
 
@@ -337,6 +338,9 @@ decodeEncodeOneHotOutput caps s = do
 type BasicPhrase a = ([a],[a],a,[a])
 type LinearPhrase a = [(a,Text)]
 data Phrase a = SubjectP (BasicPhrase a) | ConjunctionP (BasicPhrase a) | AnalogyObjectP (BasicPhrase a, BasicPhrase a)
+data PhraseCode a = SubjectCode a (BasicPhrase a) | ConjunctionCode (BasicPhrase a) | AnalogyObjectCode a a (BasicPhrase a) (BasicPhrase a)
+type Linearizer = PhraseCode Int -> PhraseContext [LinearPhrase Int]
+          
 type SubjectPhrase a = Phrase a
 type AnalogyObjectPhrase a = Phrase a
 type ConjunctionPhrase a = Phrase a
@@ -369,7 +373,7 @@ createPhrase maxModifiers = do
     let nextIds = drop 1 $ modifierIds ++ [objectId]
     modifiees <- modifieeTemplate nextIds objectId
     extras <- replicateM 2 nextM
-    return $ (modifierIds, modifiees, objectId, extras)
+    return (modifierIds, modifiees, objectId, extras)
 
 buildBasicSentence :: Int -> Int -> PhraseContext (BasicSentence Int)
 buildBasicSentence maxModifiers count = do
@@ -377,7 +381,7 @@ buildBasicSentence maxModifiers count = do
     analogyPhrases <- replicateM count (createPhrase maxModifiers)
     objectPhrases <- replicateM count (createPhrase maxModifiers)
     let subject = SubjectP subjectPhrase
-        analogyObjects = map (\p -> AnalogyObjectP p) $ zip analogyPhrases objectPhrases
+        analogyObjects = map AnalogyObjectP $ zip analogyPhrases objectPhrases
     return $ BasicSentence subject analogyObjects
 
 buildSimpleSentence :: Int -> Int -> PhraseContext (PhraseSentence Int)
@@ -405,16 +409,16 @@ generateTense = do
         getTense _ = NTPlusDelta
     return (getTense t1, getTense t2)
           
-type Linearizer = [Int] -> Phrase Int -> [LinearPhrase Int]
-          
-linearizePhrases :: (Phrase Int -> [LinearPhrase Int]) -> PhraseSentence Int -> [LinearPhrase Int]
-linearizePhrases linearizer (CompoundSentence s1 c s2) = linearS1 ++ linearC ++ linearS2
-        where linearS1 = linearizePhrases linearizer (SimpleSentence s1)
-              linearS2 = linearizePhrases linearizer (SimpleSentence s2)
-              linearC = linearizer c
-linearizePhrases linearizer (SimpleSentence (BasicSentence subject analogyObjects)) = linearSubject ++ concat linearAnalogyObjects
-    where linearSubject = linearizer subject
-          linearAnalogyObjects = map linearizer analogyObjects
+linearizePhrases :: (Phrase Int -> PhraseContext [LinearPhrase Int]) -> PhraseSentence Int -> PhraseContext [LinearPhrase Int]
+linearizePhrases linearizer (CompoundSentence s1 c s2) = do
+    linearS1 <- linearizePhrases linearizer (SimpleSentence s1)
+    linearC <- linearizer c
+    linearS2 <- linearizePhrases linearizer (SimpleSentence s2)
+    return $ linearS1 ++ linearC ++ linearS2
+linearizePhrases linearizer (SimpleSentence (BasicSentence subject analogyObjects)) = do
+    linearSubject <- linearizer subject
+    linearAnalogyObjects <- mapM linearizer analogyObjects
+    return $ linearSubject ++ concat linearAnalogyObjects
        
 buildLogicalSentence :: (AbstractTime, AbstractTime) -> (AbstractTime, AbstractTime) -> PhraseSentence Int -> Sentence Int
 buildLogicalSentence t1 t2 (CompoundSentence s1 _ s2) = mergeLogicalSentence ls1 ls2
@@ -449,15 +453,16 @@ getInputSentence :: [LinearPhrase Int] -> InputSentence
 getInputSentence lps = Vector.fromList $ map InputText wordTexts
     where wordTexts = concatMap (map snd) lps
       
-computeRelativeCode :: BasicPhrase Int -> [Int]
+computeRelativeCode :: BasicPhrase Int -> Int
 computeRelativeCode (_, mees, s, _) = meesCode
-    where meesCode = map (\mee -> if mee == s then 1 else 0) mees
+    where meesCode = decodeBitList $ map (\mee -> if mee == s then 1 else 0) mees
        
-relativeLinearizer :: Linearizer -> Phrase Int -> [LinearPhrase Int]
-relativeLinearizer l (SubjectP p) = l (computeRelativeCode p) (SubjectP p)
-relativeLinearizer l (ConjunctionP p) = l (computeRelativeCode p) (ConjunctionP p)
-relativeLinearizer l (AnalogyObjectP (p1, p2)) = l code (AnalogyObjectP (p1, p2))
-    where code = computeRelativeCode p1 ++ computeRelativeCode p2
+relativeLinearizer :: Linearizer -> Phrase Int -> PhraseContext [LinearPhrase Int]
+relativeLinearizer l (SubjectP p) = l (SubjectCode (computeRelativeCode p) p)
+relativeLinearizer l (ConjunctionP p) = l (ConjunctionCode p)
+relativeLinearizer l (AnalogyObjectP (p1, p2)) = l (AnalogyObjectCode c1 c2 p1 p2)
+    where c1 = computeRelativeCode p1
+          c2 = computeRelativeCode p2
        
 generateSentenceM :: Linearizer -> PhraseContext (InputSentence, Sentence Int)
 generateSentenceM linearizer = do
@@ -468,10 +473,10 @@ generateSentenceM linearizer = do
     let maxModifiers = 5
         buildSentence 1 = buildSimpleSentence
         buildSentence _ = buildCompoundSentence
+        rl = relativeLinearizer linearizer
     sentence <- buildSentence tenseCount maxModifiers analogiesCount
-    let rl = relativeLinearizer linearizer
-        linearSentence = linearizePhrases rl sentence
-        logicalSentence = buildLogicalSentence tense1 tense2 sentence
+    linearSentence <- linearizePhrases rl sentence
+    let logicalSentence = buildLogicalSentence tense1 tense2 sentence
         (Just packedLogicalSentence) = packSentence linearSentence logicalSentence
         inputSentence = getInputSentence linearSentence
     return (inputSentence, packedLogicalSentence)
