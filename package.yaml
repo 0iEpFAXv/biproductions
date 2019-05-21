@@ -38,6 +38,8 @@ dependencies:
   - singletons
   - containers
   - vector
+  - random
+  - MonadRandom
   #Needed for Text.Read
   - text
   - time

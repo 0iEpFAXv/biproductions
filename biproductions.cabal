@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: a55bfc736a20ae63b387eb5d90cab3a68a403d092a610b85fe20fe2cc5584af2
+-- hash: d8fc82632c865c7d1b6c24960e1f9f24adbc9e0c666ca6ef58c61d136ad6fc20
 
 name:           biproductions
 version:        1.0.0.0
@@ -29,12 +29,14 @@ library
   default-extensions: ApplicativeDo BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFoldable DeriveFunctor DeriveGeneric DeriveLift DeriveTraversable DerivingStrategies EmptyCase ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedLists OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables StandaloneDeriving TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators
   ghc-options: -Wall -O2
   build-depends:
-      base
+      MonadRandom
+    , base
     , base-noprelude
     , classy-prelude
     , containers
     , mtl
     , optparse-applicative
+    , random
     , singletons
     , text
     , time
@@ -51,13 +53,15 @@ executable biproductions-exe
   default-extensions: ApplicativeDo BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFoldable DeriveFunctor DeriveGeneric DeriveLift DeriveTraversable DerivingStrategies EmptyCase ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedLists OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables StandaloneDeriving TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators
   ghc-options: -Wall -O2
   build-depends:
-      base
+      MonadRandom
+    , base
     , base-noprelude
     , biproductions
     , classy-prelude
     , containers
     , mtl
     , optparse-applicative
+    , random
     , singletons
     , text
     , time
@@ -75,7 +79,8 @@ test-suite biproductions-test
   default-extensions: ApplicativeDo BangPatterns ConstraintKinds DataKinds DefaultSignatures DeriveFoldable DeriveFunctor DeriveGeneric DeriveLift DeriveTraversable DerivingStrategies EmptyCase ExistentialQuantification FlexibleContexts FlexibleInstances FunctionalDependencies GADTs GeneralizedNewtypeDeriving InstanceSigs KindSignatures LambdaCase MultiParamTypeClasses MultiWayIf NamedFieldPuns NoImplicitPrelude OverloadedLists OverloadedStrings PatternSynonyms RankNTypes ScopedTypeVariables StandaloneDeriving TupleSections TypeApplications TypeFamilies TypeFamilyDependencies TypeOperators
   ghc-options: -Wall -O2
   build-depends:
-      QuickCheck
+      MonadRandom
+    , QuickCheck
     , base
     , base-noprelude
     , biproductions
@@ -83,6 +88,7 @@ test-suite biproductions-test
     , containers
     , mtl
     , optparse-applicative
+    , random
     , singletons
     , text
     , time
