@@ -4,7 +4,7 @@ cabal-version: 2.0
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: d8fc82632c865c7d1b6c24960e1f9f24adbc9e0c666ca6ef58c61d136ad6fc20
+-- hash: d2c32754ecb12cf1920023148c000004d363403d3c10e613265bb8587b8f0252
 
 name:           biproductions
 version:        1.0.0.0
@@ -19,6 +19,7 @@ source-repository head
 
 library
   exposed-modules:
+      EnglishExamples
       BiProductionsLib
   other-modules:
       Paths_biproductions

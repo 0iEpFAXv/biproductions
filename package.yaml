@@ -40,8 +40,7 @@ dependencies:
   - vector
   - random
   - MonadRandom
-  #Needed for Text.Read
-  - text
+  - text # Needed for Text.Read
   - time
   - transformers
       
