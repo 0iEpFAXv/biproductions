@@ -7,18 +7,19 @@ module BiProductionsLib
       encodeOneHotInput, encodeOneHotOutput, encodeOneHotOutputWord, decodeOneHotOutput, getBitGroups,
       decodeOneHotTense, decodeEncodeOneHotOutput,
       TenseBitGroup(TenseBitGroup), WordBitGroup(WordBitGroup), buildTenses,
-      BasicPhrase, Phrase(SubjectP, ConjunctionP, AnalogyObjectP),
-      PhraseCode(SubjectCode, ConjunctionCode, AnalogyObjectCode), 
-      generateSentence, Linearizer, 
+      Phrase(SubjectP, ConjunctionP, AnalogyObjectP, PrimaryAnalogyObjectP),
+      generateSentence, 
       
       -- From EnglishExamples
       BuilderContext, nextM,
       AbstractTime (NTMinusInfinity, NTMinus, NTMinusDelta, NTPast, NTNow, NTFuture, NTPlusDelta, NTPlus, NTPlusInfinity), 
       Tense, Tenses,
-      LinearPhrase, WordGenerator,
+      LinearPhrase, WordGenerator, 
+      BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
-      showPossibleWords, showExamples, readExamples, writeFileExamples, readFileExamples, readWordGenerator,
-      buildWordGenerator
+      basicExampleData, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
+      showPossibleWords, showExamples, readExamples, readFileExamples, 
+      writeFileExamples, readWordGenerator, readLinearizer      
       
     ) where
 
@@ -318,16 +319,11 @@ decodeEncodeOneHotOutput caps s = do
     rs <- decodeOneHotOutput caps (Vector.fromList encoding)
     return (rs, rs == s)
     
--- ModifiedPhrase has list of modifiers, relative modifiees, modified word, and list of extra words for structural grammar
-type BasicPhrase = ([Int],[Int],Int,[Int])
+-- BasicPhrase has list of modifiers, modifiees, modified word, and list of extra words for structural grammar
 data Phrase = SubjectP BasicPhrase 
             | ConjunctionP BasicPhrase 
             | AnalogyObjectP Int BasicPhrase BasicPhrase
             | PrimaryAnalogyObjectP Int BasicPhrase BasicPhrase
-data PhraseCode = SubjectCode Int BasicPhrase 
-                | ConjunctionCode BasicPhrase 
-                | AnalogyObjectCode Int Int BasicPhrase BasicPhrase Tense
-type Linearizer a = PhraseCode -> BuilderContext (LinearPhrase a)
           
 type SubjectPhrase = Phrase
 type AnalogyObjectPhrase = Phrase
@@ -363,7 +359,7 @@ buildBasicSentence tenseId maxModifiers count = do
     analogyPhrases <- replicateM (count-1) (createPhrase maxModifiers)
     objectPhrases <- replicateM (count-1) (createPhrase maxModifiers)
     let subject = SubjectP subjectPhrase
-        primaryAnalogyObject = PrimaryAnalogyObjectP tenseId analogyPhrase objectPhrase
+        primaryAnalogyObject = PrimaryAnalogyObjectP tenseId primaryAnalogyPhrase primaryObjectPhrase
         analogyObjects = zipWith (AnalogyObjectP tenseId) analogyPhrases objectPhrases
     return $ BasicSentence subject (primaryAnalogyObject:analogyObjects)
 
@@ -448,9 +444,18 @@ computeRelativeCode (_, mees, s, _) = meesCode
 relativeLinearizer :: Linearizer a -> (Int -> Tense) -> Phrase -> BuilderContext (LinearPhrase a)
 relativeLinearizer l _ (SubjectP p) = l (SubjectCode (computeRelativeCode p) p)
 relativeLinearizer l _ (ConjunctionP p) = l (ConjunctionCode p)
-relativeLinearizer l t (AnalogyObjectP tId p1 p2) = l (AnalogyObjectCode c1 c2 p1 p2 (t tId))
-    where c1 = computeRelativeCode p1
-          c2 = computeRelativeCode p2
+relativeLinearizer l _ (AnalogyObjectP _ p1 p2) = do
+    let c1 = computeRelativeCode p1
+        c2 = computeRelativeCode p2
+    aPhrase <- l (AnalogyCode c1 p1)
+    oPhrase <- l (ObjectCode c2 p2)
+    return $ aPhrase ++ oPhrase
+relativeLinearizer l t (PrimaryAnalogyObjectP tId p1 p2) = do
+    let c1 = computeRelativeCode p1
+        c2 = computeRelativeCode p2
+    aPhrase <- l (PrimaryAnalogyCode (t tId) c1 p1)
+    oPhrase <- l (ObjectCode c2 p2)
+    return $ aPhrase ++ oPhrase
        
 generateSentenceM :: Linearizer a -> WordGenerator a -> Int -> BuilderContext (InputSentence, Sentence Int)
 generateSentenceM linearizer wordGenerator maxModifiers = do
