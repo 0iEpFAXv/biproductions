@@ -17,7 +17,7 @@ module BiProductionsLib
       LinearPhrase, WordGenerator, 
       BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
-      basicExampleData, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
+      basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
       showPossibleWords, showExamples, readExamples, readFileExamples, 
       writeFileExamples, readWordGenerator, readLinearizer      
       

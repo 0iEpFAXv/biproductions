@@ -5,7 +5,7 @@ module EnglishExamples
       LinearPhrase, WordGenerator,
       BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
-      basicExampleData, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
+      basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
 
       showPossibleWords, showExamples, readExamples, readFileExamples, 
       writeFileExamples, readWordGenerator, readLinearizer
@@ -91,10 +91,11 @@ convertExampleDataToTagSample (_, Nothing) = Nothing
 
 --                  info           nounMods  noun   proper  modNum  modNexts
 basicExampleData :: ExampleInfo -> [Text] -> Text -> Bool -> Int -> [Bool] -> Maybe ([ExampleWordLabel], [Text])
-basicExampleData _ _ noun proper _ [] = if proper then Just ([MainWord], [Text.toTitle noun]) else Just ([MainWord], [noun])
+basicExampleData info _ noun proper modNum [] = if isProper then Just ([MainWord], [Text.toTitle noun]) else Just ([MainWord], [noun])
+    where isProper = properness info && (proper || modNum == 0)
 basicExampleData _ [] _ _ _ _ = Nothing
 basicExampleData info (nm:restNounMods) noun proper modNum (modNext:rest) = addCurrent exampleDataRest
-    where isProper = properness info && proper || (modNum == 0 && modNext)
+    where isProper = properness info && (proper || (modNum == 0 && modNext))
           nm' = if modNum == 0 && not isProper
                 then maybe nm fst (uncons (firstMod info))
                 else nm
@@ -115,41 +116,48 @@ data ExampleInfo = ExampleInfo { modMod :: Text
                                , modModNotFirst :: Bool}
 
 -- The first argument is a list of modifier counts to scoop up and build with basicNounExampleData
---                           groups  extras     info         nounMods   nouns    modNum  modNexts   
-exampleDataWithDescriptor :: [Int] -> [Int] -> ExampleInfo -> [Text] -> [Text] -> Int -> [Bool] -> Maybe ([ExampleWordLabel], [Text])
-exampleDataWithDescriptor [] _ _ _ _ _ _ = Nothing
-exampleDataWithDescriptor _ [] _ _ _ _ _ = Nothing
-exampleDataWithDescriptor _ _ _ [] _ _ _ = Nothing
-exampleDataWithDescriptor _ _ _ _ [] _ _ = Nothing
-exampleDataWithDescriptor (0:rest) exts info nounMods nouns modNum modNexts =
-    exampleDataWithDescriptor rest exts info nounMods nouns modNum modNexts
-exampleDataWithDescriptor (n:rest) (ext:restExt) info nounMods (noun:restNouns) modNum modNexts = 
+--                           groups             info         nounMods   nouns    modNexts  subPhrase
+exampleDataWithDescriptor :: [Int] -> (Bool -> ExampleInfo) -> [Text] -> [Text] -> [Bool] -> Bool -> Maybe ([ExampleWordLabel], [Text])
+exampleDataWithDescriptor [] _ _ _ _ _ = Nothing
+exampleDataWithDescriptor _ _ _ [] _ _ = Nothing
+exampleDataWithDescriptor (n:rest) info nounMods (noun:restNouns) modNexts subPhrase = 
     let groupNext = uncons $ drop (n-1) modNexts
         --If the nth modifier is compatible with splitting into a descriptor, it will be False followed by a non empty list
-        canNotSplit = isNothing groupNext || groupNext == Just (False, []) || groupNext == Just (True, [])
+        canNotSplit = null rest || isNothing groupNext || groupNext == Just (False, []) || groupNext == Just (True, [])
         
         combineResults (Just (basicWLs, basicWs)) (Just (False, _)) (Just (descWLs, descWs)) =
-            Just (basicWLs ++ extWordLabel info ext ++ descWLs', basicWs ++ extWord info ++ descWs)
-                where maxModNum = foldr foldMax (modNum+n) descWLs
-                      foldMax (Modifier x) y = if x > y then x else y 
-                      foldMax _ y = y
-                      descWLs' = map (\MainWord -> Modifier maxModNum) descWLs
+            Just (basicWLs ++ extWordLabel infoS 0 ++ descWLs', basicWs ++ extWord infoS ++ descWs)
+                where infoS = info subPhrase
+                      maxNums = foldr foldMax (-1,-1)
+                      foldMax (Modifier mNum) (m,e) = if mNum > m then (mNum,e) else (m,e)
+                      foldMax (Other eNum) (m,e) = if eNum > e then (m,eNum) else (m,e)
+                      foldMax _ nums = nums
+                      (bMm, bMe) = maxNums basicWLs
+                      (dMm,_) = maxNums descWLs
+                      updateModNum (Modifier m) = Modifier $ m + bMm+1
+                      updateModNum (Other e) = Other $ e + bMe+1
+                      updateModNum MainWord = Modifier $ dMm+1 + bMm+1
+                      updateModNum other = other
+                      descWLs' = map updateModNum descWLs
+                      
         combineResults _ _ _ = Nothing
 
-        basicRs = basicExampleData info (firstMod info ++ take n nounMods) noun False modNum (take n modNexts)
-        descriptorRs = exampleDataWithDescriptor rest restExt info (drop n nounMods) restNouns (modNum+n) (drop (n+1) modNexts)
+        basicRs = basicExampleData (info subPhrase) (take n nounMods) noun False 0 (take (if subPhrase then n-1 else n) modNexts)
+        descriptorRs = exampleDataWithDescriptor rest info (drop n nounMods) restNouns (drop n modNexts) True
     in if canNotSplit
        then basicRs
        else combineResults basicRs groupNext descriptorRs
 
-nounExampleInfo :: ExampleInfo
-nounExampleInfo = ExampleInfo { modMod = "very", extWordLabel = \x -> [Other x], extWord = ["of"], firstMod = ["the"], properness = True, modModNotFirst = False}
-verbExampleInfo :: ExampleInfo
-verbExampleInfo = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
-verbFutureExampleInfo :: ExampleInfo
-verbFutureExampleInfo = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = ["will"], properness = False, modModNotFirst = True }
-byVerbExampleInfo :: ExampleInfo
-byVerbExampleInfo = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = ["by"], properness = False, modModNotFirst = True }
+nounExampleInfo :: Bool -> ExampleInfo
+nounExampleInfo _ = ExampleInfo { modMod = "very", extWordLabel = \x -> [Other x], extWord = ["of"], firstMod = ["the"], properness = True, modModNotFirst = False}
+verbExampleInfo :: Bool -> ExampleInfo
+verbExampleInfo _ = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
+verbFutureExampleInfo :: Bool -> ExampleInfo
+verbFutureExampleInfo False = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = ["will"], properness = False, modModNotFirst = True }
+verbFutureExampleInfo True = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
+byVerbExampleInfo :: Bool -> ExampleInfo
+byVerbExampleInfo False = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = ["by"], properness = False, modModNotFirst = True }
+byVerbExampleInfo True = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
 
 pastTense :: Tense
 pastTense = (NTPast, NTPlus)
@@ -161,16 +169,22 @@ futureTense = (NTFuture, NTPlus)
 buildExampleDatum :: Int -> [Text] -> [Text] -> ExampleTableId -> [Int] -> (ExampleTableId, Maybe ([ExampleWordLabel], [Text]))
 buildExampleDatum _ _ _ tableId [] = (tableId, Nothing)
 buildExampleDatum w nounMods nouns (SubjectTable sequenceId) gs = (SubjectTable sequenceId, example)
-    where example = sentencify $ exampleDataWithDescriptor gs [0..(w-1)] nounExampleInfo nounMods nouns 0 modNexts
-          modNexts = map (== 1) $ padOrdinal w (encodeBitList sequenceId)
+    where example = sentencify $ exampleDataWithDescriptor gs nounExampleInfo nounMods nouns modNexts False
+          modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
           sentencify (Just (_, [])) = Nothing
           sentencify (Just (wLs, firstWord:restWords)) = Just (wLs++completedwLs, Text.toTitle firstWord:restWords++completedws)
           (completedwLs, completedws) = unzip $ map (BackMatter,) (words "jumped over the back .")
 
 buildExampleDatum w nounMods nouns (ObjectTable sequenceId) gs = (ObjectTable sequenceId, example)
-    where (_, example) = buildExampleDatum w nounMods nouns (SubjectTable sequenceId) gs
-
+    where example = sentencify $ exampleDataWithDescriptor gs nounExampleInfo nounMods nouns modNexts False
+          modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
+          sentencify Nothing = Nothing
+          sentencify (Just (_, [])) = Nothing
+          sentencify (Just (wLs, ws)) = Just (frontwLs++wLs++completedwLs, frontws++ws++completedws)
+          (frontwLs, frontws) = unzip $ map (FrontMatter,) (words "The mouse jumped over")
+          (completedwLs, completedws) = unzip $ map (BackMatter,) ["."]
+          
 buildExampleDatum _ _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
     where example = sentencify $ conjunctionExampleData g conjunctions
           conjunctionExampleData _ [] = Nothing
@@ -183,18 +197,18 @@ buildExampleDatum _ _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the car ran out of gas .")
           
 buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (PrimaryAnalogyTable tense sequenceId, example)
-    where example = sentencify $ exampleDataWithDescriptor gs [0..(w-1)] (selectInfo tense) verbMods verbs 0 modNexts
+    where example = sentencify $ exampleDataWithDescriptor gs (selectInfo tense) verbMods verbs modNexts False
           selectInfo (NTFuture, NTPlus) = verbFutureExampleInfo
           selectInfo _ = verbExampleInfo
-          modNexts = map (== 1) $ padOrdinal w (encodeBitList sequenceId)
+          modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
           sentencify (Just (wLs, ws)) = Just (frontWLs++wLs++backWLs, frontWs++ws++backWs)
           (frontWLs, frontWs) = unzip $ map (FrontMatter,) (words "The fox")
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the lazy dog .")
  
 buildExampleDatum w verbMods verbs (AnalogyTable sequenceId) gs = (AnalogyTable sequenceId, example)
-    where example = sentencify $ exampleDataWithDescriptor gs [0..(w-1)] byVerbExampleInfo verbMods verbs 0 modNexts
-          modNexts = map (== 1) $ padOrdinal w (encodeBitList sequenceId)
+    where example = sentencify $ exampleDataWithDescriptor gs byVerbExampleInfo verbMods verbs modNexts False
+          modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
           sentencify (Just (wLs, ws)) = Just (frontWLs++wLs++backWLs, frontWs++ws++backWs)
           (frontWLs, frontWs) = unzip $ map (FrontMatter,) (words "The fox jumped over the dog")
@@ -226,24 +240,26 @@ getGroupsLists _ = []
 width :: Int
 width = 5
 
-buildSamples :: (Int -> ExampleTableId) -> [Text] -> [Text] -> Rand StdGen TagSamples
-buildSamples tableId wordMods theWords = do
+buildSamples :: (Int -> ExampleTableId) -> [Text] -> [Text] -> [Text] -> Rand StdGen TagSamples
+buildSamples tableId wordMods theWords moreWords = do
     wordMods' <- randomize wordMods
     theWords' <- randomize theWords
+    moreWords' <- randomize moreWords
     let options :: Int
         options = 2 ^ width
         groups :: [[Int]]
         groups = getGroupsLists width
-        builder = buildExampleDatum width wordMods' theWords'
+        builder = buildExampleDatum width wordMods' (take 1 theWords' ++ moreWords')
         sequences = map tableId [0..(options-1)] :: [ExampleTableId]
         sequenceGroups = concatMap (\s -> zip (repeat s) groups) sequences
         exampleData = map (uncurry builder) sequenceGroups
     return $ mapMaybe convertExampleDataToTagSample exampleData
 
 buildSubjectExamples :: Rand StdGen TagSamples
-buildSubjectExamples = buildSamples SubjectTable nounMods nouns
+buildSubjectExamples = buildSamples SubjectTable nounMods nouns moreNouns
     where nounMods = words "jumpy young quick Charlie's happy sly small giant tailed fanged striped"
           nouns = words "fox colonel wines water skies fool vacuum patience lights box"
+          moreNouns = words "ceiling vapor chair transformer squirrel slug rock grain rat car"
 
 buildConjunctionExamples :: Rand StdGen TagSamples
 buildConjunctionExamples = return $ catMaybes samples
@@ -253,25 +269,28 @@ buildConjunctionExamples = return $ catMaybes samples
           samples = map convertExampleDataToTagSample exampleData
 
 buildObjectExamples :: Rand StdGen TagSamples
-buildObjectExamples = buildSamples ObjectTable nounMods nouns
+buildObjectExamples = buildSamples ObjectTable nounMods nouns moreNouns
     where nounMods = words "jumpy young quick Charlie's happy sly small giant tailed fanged striped"
           nouns = words "fox colonel wines water skies fool vacuum patience lights box"
+          moreNouns = words "ceiling vapor chair transformer squirrel slug rock grain rat car"
 
 buildAnalogyExamples :: Rand StdGen TagSamples
-buildAnalogyExamples = buildSamples AnalogyTable verbMods verbs
-    where verbMods = words "quickly elaborately over up sedately never always fairly cleanly around"
+buildAnalogyExamples = buildSamples AnalogyTable verbMods verbs moreMods
+    where verbMods = words "quickly elaborately plainly usually sedately never always fairly cleanly not"
           verbs = words "jumping helping forcing backing cluttering groaning holding seeing running swimming eating"
+          moreMods = words "reluctantly stupidly painfully ultimately stonily thoroughly scantily barely suddenly sparingly"
 
 buildPrimaryAnalogyExamples :: Rand StdGen TagSamples
 buildPrimaryAnalogyExamples = do 
-    let verbMods = words "quickly elaborately over up sedately never always fairly cleanly really"
+    let verbMods = words "quickly elaborately plainly usually sedately never always fairly cleanly not"
+        moreMods = words "reluctantly stupidly painfully ultimately stonily thoroughly scantily barely suddenly sparingly"
         tenses = [pastTense, presentTense, futureTense] :: [Tense]
         verbs (NTPast, NTPlus) = words "jumped helped forced backed cluttered groaned held saw ran swam ate"
         verbs (NTNow, NTPlus) = words "jumps helps forces backs clutters groans holds sees runs swims eats"
         verbs (NTFuture, NTPlus) = if width == 0 then return [] else 
             words "jump help force back clutter groan hold see run swim eat"
         verbs _ = verbs (NTNow, NTPlus)
-    let sample tense = buildSamples (PrimaryAnalogyTable tense) verbMods (verbs tense)
+    let sample tense = buildSamples (PrimaryAnalogyTable tense) verbMods (verbs tense) moreMods
     samples <- mapM sample tenses
     return $ concat samples
 
@@ -280,21 +299,29 @@ showPossibleWords pws = tshow $ Map.toList (Map.map Vector.toList pws)
 
 buildExamples :: Rand StdGen TagSamples
 buildExamples = do
-    subjectExamples <- buildSubjectExamples
-    conjunctionExamples <- buildConjunctionExamples
-    analogyExamples <- buildAnalogyExamples
-    primaryAnalogyExamples <- buildPrimaryAnalogyExamples
-    objectExamples <- buildObjectExamples
-    return $ subjectExamples ++ conjunctionExamples ++ analogyExamples ++ primaryAnalogyExamples ++ objectExamples 
+    s1 <- buildSubjectExamples
+    s2 <- buildSubjectExamples
+    c <- buildConjunctionExamples
+    a1 <- buildAnalogyExamples
+    a2 <- buildAnalogyExamples
+    pa1 <- buildPrimaryAnalogyExamples
+    pa2 <- buildPrimaryAnalogyExamples
+    o1 <- buildObjectExamples
+    o2 <- buildObjectExamples
+    return $ s1 ++ s2 ++ c ++ a1 ++ a2 ++ pa1 ++ pa2 ++ o1 ++ o2
 
 showExamples :: Rand StdGen Text
 showExamples = tshow <$> buildExamples
 
-writeFileExamples :: FilePath -> IO ()
-writeFileExamples filename = do
+writeFileExamples :: FilePath -> FilePath -> IO ()
+writeFileExamples structFilename listsFilename = do
     g <- newStdGen
-    let t = evalRand showExamples g
-    writeFileUtf8 filename t
+    let samples = evalRand buildExamples g
+        toWordList (TagSample _ ws) = map toWord ws
+        toWord (ExampleWord _ t) = t
+        wsList = map toWordList samples
+    writeFileUtf8 structFilename $ tshow samples
+    writeFileUtf8 listsFilename $ tshow wsList
 
 
 -----------------------------------------------------------------------
@@ -303,10 +330,41 @@ writeFileExamples filename = do
 readExamples :: Text -> Maybe TagSamples
 readExamples = readMay
 
-readFileExamples :: FilePath -> IO (Maybe TagSamples)
-readFileExamples filename = do
-    t <- readFileUtf8 filename
-    return $ readExamples t
+readFileExamples :: FilePath -> FilePath -> IO (Maybe TagSamples)
+readFileExamples structFilename possFilename = do
+    structT <- readFileUtf8 structFilename
+    wsListT <- readFileUtf8 possFilename
+    let wordSamples = readMay structT :: Maybe TagSamples
+        posLists = readMay wsListT :: Maybe [[Text]]
+        samples = filledSamples wordSamples posLists
+        filledSamples (Just ss) (Just ps) = map fillSample $ zip ss ps
+        filledSamples _ _ = []
+        fillSample (TagSample tableId ews, poss) = TagSample tableId $ map fillWord (zip ews poss)
+        fillWord (ExampleWord wL _, t) = ExampleWord wL t
+        matchError = matchSamples wordSamples posLists
+        failMatch = matchError /= ""
+        matchSamples (Just ss) (Just ps) = 
+            let lps = length ps
+                lss = length ss
+            in if lss == lps 
+               then concatMap matchSample (zip ss ps) 
+               else "Length of struct " ++ tshow lss ++ " does not match " ++ tshow lps
+        matchSamples Nothing _ = "Could not correctly read structure samples"
+        matchSamples _ Nothing = "Could not correclty read part-of-speech samples"
+        matchSample (TagSample sID ews, poss) = 
+            let lews = length ews
+                lposs = length poss
+            in if lews == lposs
+               then "" 
+               else "Length of sample " ++ tshow sID ++ " , " ++ tshow lews ++ " does not match " ++ tshow lposs ++ "\n"
+    if failMatch 
+    then do
+        putStrLn matchError
+        return Nothing
+    else do
+        putStrLn "Successful read of file examples"
+        return $ Just samples
+        
 
 -- BasicPhrase has list of modifiers, modifiees, modified word, and list of extra words for structural grammar
 --type BasicPhrase = ([Int],[Int],Int,[Int])
@@ -358,9 +416,9 @@ buildLinearizer (Just samples) = Just $ linearizeWords tables
                     alterFn (Just priorWs) = Just $ Vector.cons ws priorWs
 
 
-readLinearizer :: FilePath -> IO (Maybe (Linearizer Text))
-readLinearizer linearizerName = do
-    mTagSamples <- readFileExamples linearizerName
+readLinearizer :: FilePath -> FilePath -> IO (Maybe (Linearizer Text))
+readLinearizer structFilename possFilename = do
+    mTagSamples <- readFileExamples structFilename possFilename
     return $ buildLinearizer mTagSamples
 
 
