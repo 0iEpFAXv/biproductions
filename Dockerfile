@@ -53,7 +53,7 @@ COPY package.yaml /tmp/biproductions/
 COPY stack.yaml /tmp/biproductions/
 COPY entrypoint.sh /home/
 
-RUN chown -R $NB_USER:$NB_GID /tmp/biproductions && \
+RUN chown -R $NB_USER:$NB_GID /tmp/biproductions
 
 USER $NB_UID    
 
