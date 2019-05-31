@@ -7,7 +7,7 @@ module EnglishExamples
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
       basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
 
-      showPossibleWords, showExamples, readExamples, readFileExamples, 
+      maybeReadUtf8, showPossibleWords, showExamples, readFileExamples, 
       writeFileExamples, readWordGenerator, readLinearizer
       ) where
 
@@ -16,6 +16,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vector
 import qualified Data.Text as Text
 import Data.Vector ((!?))
+import System.IO (hPutStr)
 import Control.Monad.Random.Lazy hiding (replicateM)
 import Control.Monad.Trans.State.Lazy
 
@@ -255,11 +256,20 @@ buildSamples tableId wordMods theWords moreWords = do
         exampleData = map (uncurry builder) sequenceGroups
     return $ mapMaybe convertExampleDataToTagSample exampleData
 
-buildSubjectExamples :: Rand StdGen TagSamples
-buildSubjectExamples = buildSamples SubjectTable nounMods nouns moreNouns
+getNounWords :: ([Text],[Text],[Text])
+getNounWords = (nounMods, nouns, moreNouns)
     where nounMods = words "jumpy young quick Charlie's happy sly small giant tailed fanged striped"
           nouns = words "fox colonel wines water skies fool vacuum patience lights box"
           moreNouns = words "ceiling vapor chair transformer squirrel slug rock grain rat car"
+    
+
+buildSubjectExamples :: Rand StdGen TagSamples
+buildSubjectExamples = buildSamples SubjectTable nounMods nouns moreNouns
+    where (nounMods,nouns,moreNouns) = getNounWords
+
+buildObjectExamples :: Rand StdGen TagSamples
+buildObjectExamples = buildSamples ObjectTable nounMods nouns moreNouns
+    where (nounMods,nouns,moreNouns) = getNounWords
 
 buildConjunctionExamples :: Rand StdGen TagSamples
 buildConjunctionExamples = return $ catMaybes samples
@@ -267,12 +277,6 @@ buildConjunctionExamples = return $ catMaybes samples
           builder = buildExampleDatum width [] []
           exampleData = map (builder ConjunctionTable) conjuctionGroups
           samples = map convertExampleDataToTagSample exampleData
-
-buildObjectExamples :: Rand StdGen TagSamples
-buildObjectExamples = buildSamples ObjectTable nounMods nouns moreNouns
-    where nounMods = words "jumpy young quick Charlie's happy sly small giant tailed fanged striped"
-          nouns = words "fox colonel wines water skies fool vacuum patience lights box"
-          moreNouns = words "ceiling vapor chair transformer squirrel slug rock grain rat car"
 
 buildAnalogyExamples :: Rand StdGen TagSamples
 buildAnalogyExamples = buildSamples AnalogyTable verbMods verbs moreMods
@@ -327,19 +331,22 @@ writeFileExamples structFilename listsFilename = do
 -----------------------------------------------------------------------
 -- Implement reading in linearizer from POS tagged example sentences --
 
-readExamples :: Text -> Maybe TagSamples
-readExamples = readMay
+maybeReadUtf8 :: Read a => FilePath -> IO (Maybe a)
+maybeReadUtf8 filename = do
+    eResults <- tryIO $ readFileUtf8 filename
+    let maybeResult (Left e) = do putStrLn $ "Error reading " ++ tshow filename ++ ": " ++ tshow e
+                                  return Nothing
+        maybeResult (Right t) = return $ readMay t
+    maybeResult eResults
 
 readFileExamples :: FilePath -> FilePath -> IO (Maybe TagSamples)
 readFileExamples structFilename possFilename = do
-    structT <- readFileUtf8 structFilename
-    wsListT <- readFileUtf8 possFilename
-    let wordSamples = readMay structT :: Maybe TagSamples
-        posLists = readMay wsListT :: Maybe [[Text]]
-        samples = filledSamples wordSamples posLists
-        filledSamples (Just ss) (Just ps) = map fillSample $ zip ss ps
+    wordSamples <- maybeReadUtf8 structFilename
+    posLists <- maybeReadUtf8 possFilename
+    let samples = filledSamples wordSamples posLists
+        filledSamples (Just ss) (Just ps) = zipWith (curry fillSample) ss ps
         filledSamples _ _ = []
-        fillSample (TagSample tableId ews, poss) = TagSample tableId $ map fillWord (zip ews poss)
+        fillSample (TagSample tableId ews, poss) = TagSample tableId $ zipWith (curry fillWord) ews poss
         fillWord (ExampleWord wL _, t) = ExampleWord wL t
         matchError = matchSamples wordSamples posLists
         failMatch = matchError /= ""
@@ -359,7 +366,7 @@ readFileExamples structFilename possFilename = do
                else "Length of sample " ++ tshow sID ++ " , " ++ tshow lews ++ " does not match " ++ tshow lposs ++ "\n"
     if failMatch 
     then do
-        putStrLn matchError
+        hPutStr stderr $ show (matchError ++ "\n")
         return Nothing
     else do
         putStrLn "Successful read of file examples"
@@ -425,16 +432,15 @@ readLinearizer structFilename possFilename = do
 ----------------------------------------------------------------
 -- Implement reading in Word Generator from POS tagged corpus --
 
-readPossibleWords :: Text -> Maybe PossibleWords
-readPossibleWords t = possibleWords lists
-    where lists = readMay t
-          possibleWords Nothing = Nothing
-          possibleWords (Just assocList) = Just $ Map.map Vector.fromList (Map.fromList assocList)
-
-readFilePossibleWords :: FilePath -> IO (Maybe PossibleWords)
+readFilePossibleWords :: FilePath -> IO (Maybe ([Text], PossibleWords))
 readFilePossibleWords filename = do
-    t <- readFileUtf8 filename
-    return $ readPossibleWords t
+    lists <- maybeReadUtf8 filename
+    let possibleWords :: Maybe [(PossibleWordIndex,[Text])] -> Maybe ([Text], PossibleWords)
+        possibleWords Nothing = Nothing
+        possibleWords (Just assocList) = Just (allWords assocList, Map.map Vector.fromList (Map.fromList assocList))
+        allWords :: [(PossibleWordIndex, [Text])] -> [Text]
+        allWords assocList = concatMap snd assocList
+    return $ possibleWords lists
 
 indexedWordGenerator :: PossibleWords -> [(Int, PossibleWordIndex)] -> BuilderContext (LinearPhrase Text)
 indexedWordGenerator _ [] = return []
@@ -462,11 +468,11 @@ buildIndexedWords (Just wPOSPrior) ((wId,wPOS):((wIdNext,wPOSNext):rest)) =
 dataWordGenerator :: PossibleWords -> [(Int,Text)] -> BuilderContext (LinearPhrase Text)
 dataWordGenerator pws ws = indexedWordGenerator pws $ buildIndexedWords Nothing ws
     
-buildWordGenerator :: Maybe PossibleWords -> Maybe (WordGenerator Text)
-buildWordGenerator (Just possibles) = Just $ dataWordGenerator possibles
+buildWordGenerator :: Maybe ([Text],PossibleWords) -> Maybe ([Text], WordGenerator Text)
+buildWordGenerator (Just (dictionary, possibles)) = Just $ (dictionary, dataWordGenerator possibles)
 buildWordGenerator Nothing = Nothing
 
-readWordGenerator :: FilePath -> IO (Maybe (WordGenerator Text))
+readWordGenerator :: FilePath -> IO (Maybe ([Text], WordGenerator Text))
 readWordGenerator possibleWordsName = do
     possibleWords <- readFilePossibleWords possibleWordsName
     return $ buildWordGenerator possibleWords

@@ -1,9 +1,8 @@
 module BiProductionsLib
-    ( testMessage,
-      InputWord(InputText, InputTime, InputRelativeTime), InputSentence,
+    ( InputWord(InputText, InputTime, InputRelativeTime), InputSentence,
       TenseId, Modifier(Modifier), Analogy(Analogy), Sentence(Sentence),
       OneHotCaps(ohcWords, ohcTenses), defaultOneHotCaps, wordOrdinals, padOrdinals,
-      mapMSentence,
+      mapMSentence, buildWordOrdinals,
       encodeOneHotInput, encodeOneHotOutput, encodeOneHotOutputWord, decodeOneHotOutput, getBitGroups,
       decodeOneHotTense, decodeEncodeOneHotOutput,
       TenseBitGroup(TenseBitGroup), WordBitGroup(WordBitGroup), buildTenses,
@@ -18,7 +17,7 @@ module BiProductionsLib
       BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
       basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
-      showPossibleWords, showExamples, readExamples, readFileExamples, 
+      showPossibleWords, showExamples, readFileExamples, 
       writeFileExamples, readWordGenerator, readLinearizer      
       
     ) where
@@ -27,12 +26,10 @@ import ClassyPrelude
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vector
 import qualified Data.Char as Char
+import Data.Sort (uniqueSort)
 import Control.Monad.Random.Lazy hiding (replicateM)
 import Control.Monad.Trans.State.Lazy
 import EnglishExamples
-
-testMessage :: Text
-testMessage = "Hello World"
 
 data InputWord = InputText Text | InputTime Text UTCTime | InputRelativeTime Text Double 
                  deriving (Eq, Read, Show)
@@ -76,7 +73,7 @@ mapMSentence f (Sentence ts ms as) = do
 wordOrdinals :: [Text] -> WordOrdinals
 wordOrdinals dictionary = lookUps
     where binaryValues = map encodeBitList [1..]
-          indexedSet l = Map.fromAscList $ zip (sort l) binaryValues
+          indexedSet l = Map.fromAscList $ zip (uniqueSort l) binaryValues
           s = indexedSet (map toLower dictionary)
           rs = indexedSet (map (toLower . reverse) dictionary)
           lookUp :: Text -> Map Text [Int] -> [Int]
@@ -88,8 +85,11 @@ padOrdinals fl sl ordinals = newOrdinals
     where newOrdinals = pad . ordinals
           pad (f,s) = (padOrdinal fl f, padOrdinal sl s)
 
-encodeOneHotInput :: [Text] -> OneHotCaps -> InputSentence -> Either Text [Int]
-encodeOneHotInput dictionary = encodeOneHotInputWords (padOrdinals 16 8 (wordOrdinals dictionary)) 0
+buildWordOrdinals :: [Text] -> WordOrdinals
+buildWordOrdinals dictionary = padOrdinals 16 8 (wordOrdinals dictionary)
+
+encodeOneHotInput :: WordOrdinals -> OneHotCaps -> InputSentence -> Either Text [Int]
+encodeOneHotInput ordinals = encodeOneHotInputWords ordinals 0
 
 encodeOneHotInputWords :: WordOrdinals -> Int -> OneHotCaps -> InputSentence -> Either Text [Int]
 encodeOneHotInputWords ordinals wordId caps s 
