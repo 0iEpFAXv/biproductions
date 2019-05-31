@@ -49,6 +49,7 @@ ENV PATH /root/.local/bin:/opt/cabal/2.4/bin:/opt/ghc/8.6.3/bin:$HOME/.local/bin
 
 COPY app/ /tmp/biproductions/app/
 COPY src/ /tmp/biproductions/src/
+COPY test/ /tmp/biproductions/test/
 COPY package.yaml /tmp/biproductions/
 COPY stack.yaml /tmp/biproductions/
 COPY entrypoint.sh /home/
