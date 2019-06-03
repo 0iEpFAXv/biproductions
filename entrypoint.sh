@@ -1,4 +1,5 @@
 cd /tmp/biproductions
+mv /home/*.txt .
 stack exec biproductions-exe >> /home/stdoe/analytic.log 2>> /home/stdoe/analytic.err
-cp *.txt /home/
+mv *.txt /home/
 sleep 1
