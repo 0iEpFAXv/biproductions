@@ -16,7 +16,7 @@ module BiProductionsLib
       LinearPhrase, WordGenerator, 
       BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
-      basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
+      basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, preVerbExampleInfo,
       showPossibleWords, showExamples, readFileExamples, 
       writeFileExamples, readWordGenerator, readLinearizer      
       
@@ -381,14 +381,14 @@ buildCompoundSentence maxModifiers count = do
 generateTense :: BuilderContext Tense
 generateTense = do
     t1 <- getRandomR (0::Int,3::Int)
-    t2 <- getRandomR (0::Int,3::Int)
+    t2 <- getRandomR (t1,3::Int)
     let getTense 0 = NTPast
         getTense 1 = NTNow
         getTense 2 = NTFuture
         getTense _ = NTPlusDelta
     return (getTense t1, getTense t2)
           
-linearizePhrases :: (Phrase -> BuilderContext (LinearPhrase a)) -> PhraseSentence -> BuilderContext (LinearPhrase a)
+linearizePhrases :: (Phrase -> BuilderContext (LinearPhrase Text)) -> PhraseSentence -> BuilderContext (LinearPhrase Text)
 linearizePhrases linearizer (CompoundSentence s1 c s2) = do
     linearS1 <- linearizePhrases linearizer (SimpleSentence s1)
     linearC <- linearizer c
@@ -441,7 +441,7 @@ computeRelativeCode :: BasicPhrase -> Int
 computeRelativeCode (_, mees, s, _) = meesCode
     where meesCode = decodeBitList $ map (\mee -> if mee == s then 0 else 1) mees
        
-relativeLinearizer :: Linearizer a -> (Int -> Tense) -> Phrase -> BuilderContext (LinearPhrase a)
+relativeLinearizer :: Linearizer Text -> (Int -> Tense) -> Phrase -> BuilderContext (LinearPhrase Text)
 relativeLinearizer l _ (SubjectP p) = l (SubjectCode (computeRelativeCode p) p)
 relativeLinearizer l _ (ConjunctionP p) = l (ConjunctionCode p)
 relativeLinearizer l _ (AnalogyObjectP _ p1 p2) = do
@@ -457,7 +457,7 @@ relativeLinearizer l t (PrimaryAnalogyObjectP tId p1 p2) = do
     oPhrase <- l (ObjectCode c2 p2)
     return $ aPhrase ++ oPhrase
        
-generateSentenceM :: Linearizer a -> WordGenerator a -> Int -> BuilderContext (InputSentence, Sentence Int)
+generateSentenceM :: Linearizer Text -> WordGenerator Text -> Int -> BuilderContext (InputSentence, Sentence Int)
 generateSentenceM linearizer wordGenerator maxModifiers = do
     tenseCount <- getRandomR (1,2)
     analogiesCount <- getRandomR (tenseCount, 10)
@@ -476,5 +476,5 @@ generateSentenceM linearizer wordGenerator maxModifiers = do
         inputSentence = getInputSentence wordSentence
     return (inputSentence, packedLogicalSentence)
 
-generateSentence :: Linearizer a -> WordGenerator a -> Int -> StdGen -> (InputSentence, Sentence Int)
+generateSentence :: Linearizer Text -> WordGenerator Text -> Int -> StdGen -> (InputSentence, Sentence Int)
 generateSentence linearizer wg maxModifiers g = evalState (evalRandT (generateSentenceM linearizer wg maxModifiers) g) 0

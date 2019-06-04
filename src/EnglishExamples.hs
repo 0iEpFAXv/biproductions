@@ -5,7 +5,7 @@ module EnglishExamples
       LinearPhrase, WordGenerator,
       BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
-      basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, verbFutureExampleInfo, byVerbExampleInfo,
+      basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, preVerbExampleInfo,
 
       maybeReadUtf8, showPossibleWords, showExamples, readFileExamples, 
       writeFileExamples, readWordGenerator, readLinearizer
@@ -59,7 +59,12 @@ data ExampleTableId = SubjectTable Int
 data TagSample = TagSample ExampleTableId ExampleWords deriving (Eq, Show, Read)
 type TagSamples = [TagSample]
 
-data PossibleWordIndex = OneWord Text | FirstWord Text Text | MidWord Text Text Text | LastWord Text Text deriving (Ord, Eq, Show, Read)
+data PossibleWordIndex = OnlyWord Text 
+                       | FirstWord Text Text 
+                       | MidWord Text Text Text 
+                       | LastWord Text Text
+                       | WordPair Text Text
+                       | WordSingle Text deriving (Ord, Eq, Show, Read)
 type PossibleWordVector = Vector Text
 type PossibleWords = Map PossibleWordIndex PossibleWordVector
 
@@ -129,7 +134,7 @@ exampleDataWithDescriptor (n:rest) info nounMods (noun:restNouns) modNexts subPh
         combineResults (Just (basicWLs, basicWs)) (Just (False, _)) (Just (descWLs, descWs)) =
             Just (basicWLs ++ extWordLabel infoS 0 ++ descWLs', basicWs ++ extWord infoS ++ descWs)
                 where infoS = info subPhrase
-                      maxNums = foldr foldMax (-1,-1)
+                      maxNums = foldr foldMax (-1,0) -- bMe = 0 since it was used for extWordLabel
                       foldMax (Modifier mNum) (m,e) = if mNum > m then (mNum,e) else (m,e)
                       foldMax (Other eNum) (m,e) = if eNum > e then (m,eNum) else (m,e)
                       foldMax _ nums = nums
@@ -153,19 +158,22 @@ nounExampleInfo :: Bool -> ExampleInfo
 nounExampleInfo _ = ExampleInfo { modMod = "very", extWordLabel = \x -> [Other x], extWord = ["of"], firstMod = ["the"], properness = True, modModNotFirst = False}
 verbExampleInfo :: Bool -> ExampleInfo
 verbExampleInfo _ = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
-verbFutureExampleInfo :: Bool -> ExampleInfo
-verbFutureExampleInfo False = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = ["will"], properness = False, modModNotFirst = True }
-verbFutureExampleInfo True = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
-byVerbExampleInfo :: Bool -> ExampleInfo
-byVerbExampleInfo False = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = ["by"], properness = False, modModNotFirst = True }
-byVerbExampleInfo True = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
+preVerbExampleInfo :: Text -> Bool -> ExampleInfo
+preVerbExampleInfo preW False = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [preW], properness = False, modModNotFirst = True }
+preVerbExampleInfo _ True = ExampleInfo { modMod = "very", extWordLabel = const [], extWord = [], firstMod = [], properness = False, modModNotFirst = False }
 
 pastTense :: Tense
-pastTense = (NTPast, NTPlus)
+pastTense = (NTPast, NTPast) -- "It had stopped it."
+pastNowTense :: Tense
+pastNowTense = (NTPast, NTNow)  -- "It stopped it."
+pastFutureTense :: Tense
+pastFutureTense = (NTPast, NTFuture) -- "It be stopping it."
 presentTense :: Tense
-presentTense = (NTNow, NTPlus)
+presentTense = (NTNow, NTNow) -- "It stops it."
+beginningTense :: Tense
+beginningTense = (NTNow, NTFuture)  -- "It is stopping it."
 futureTense :: Tense
-futureTense = (NTFuture, NTPlus)
+futureTense = (NTFuture, NTFuture) -- "It will stop it."
 
 buildExampleDatum :: Int -> [Text] -> [Text] -> ExampleTableId -> [Int] -> (ExampleTableId, Maybe ([ExampleWordLabel], [Text]))
 buildExampleDatum _ _ _ tableId [] = (tableId, Nothing)
@@ -199,7 +207,12 @@ buildExampleDatum _ _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
           
 buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (PrimaryAnalogyTable tense sequenceId, example)
     where example = sentencify $ exampleDataWithDescriptor gs (selectInfo tense) verbMods verbs modNexts False
-          selectInfo (NTFuture, NTPlus) = verbFutureExampleInfo
+          selectInfo (NTPast, NTPast) = preVerbExampleInfo "had"
+          selectInfo (NTPast, NTNow) = verbExampleInfo
+          selectInfo (NTPast, NTFuture) = preVerbExampleInfo "be"
+          selectInfo (NTNow, NTNow) = verbExampleInfo
+          selectInfo (NTNow, NTFuture) = preVerbExampleInfo "is"
+          selectInfo (NTFuture, NTFuture) = preVerbExampleInfo "will"
           selectInfo _ = verbExampleInfo
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
@@ -208,7 +221,7 @@ buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the lazy dog .")
  
 buildExampleDatum w verbMods verbs (AnalogyTable sequenceId) gs = (AnalogyTable sequenceId, example)
-    where example = sentencify $ exampleDataWithDescriptor gs byVerbExampleInfo verbMods verbs modNexts False
+    where example = sentencify $ exampleDataWithDescriptor gs (preVerbExampleInfo "by") verbMods verbs modNexts False
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
           sentencify (Just (wLs, ws)) = Just (frontWLs++wLs++backWLs, frontWs++ws++backWs)
@@ -288,12 +301,18 @@ buildPrimaryAnalogyExamples :: Rand StdGen TagSamples
 buildPrimaryAnalogyExamples = do 
     let verbMods = words "quickly elaborately plainly usually sedately never always fairly cleanly not"
         moreMods = words "reluctantly stupidly painfully ultimately stonily thoroughly scantily barely suddenly sparingly"
-        tenses = [pastTense, presentTense, futureTense] :: [Tense]
-        verbs (NTPast, NTPlus) = words "jumped helped forced backed cluttered groaned held saw ran swam ate"
-        verbs (NTNow, NTPlus) = words "jumps helps forces backs clutters groans holds sees runs swims eats"
-        verbs (NTFuture, NTPlus) = if width == 0 then return [] else 
+        tenses = [pastTense, pastNowTense, pastFutureTense, presentTense, beginningTense, futureTense] :: [Tense]
+        verbs (NTPast, NTPast) = if width == 0 then return [] else 
+            words "jumped helped forced backed cluttered groaned held saw ran swam ate"
+        verbs (NTPast, NTNow) = verbs (NTPast, NTPast)
+        verbs (NTPast, NTFuture) = if width == 0 then return [] else 
+            words "jumping helping forcing backing cluttering groaning holding seeing running swimming eating"
+        verbs (NTNow, NTNow) = words "jumps helps forces backs clutters groans holds sees runs swims eats"
+        verbs (NTNow, NTFuture) = if width == 0 then return [] else 
+            verbs (NTPast, NTFuture)
+        verbs (NTFuture, NTFuture) = if width == 0 then return [] else 
             words "jump help force back clutter groan hold see run swim eat"
-        verbs _ = verbs (NTNow, NTPlus)
+        verbs _ = verbs (NTNow, NTNow)
     let sample tense = buildSamples (PrimaryAnalogyTable tense) verbMods (verbs tense) moreMods
     samples <- mapM sample tenses
     return $ concat samples
@@ -439,14 +458,24 @@ readFilePossibleWords filename = do
         possibleWords Nothing = Nothing
         possibleWords (Just assocList) = Just (allWords assocList, Map.map Vector.fromList (Map.fromList assocList))
         allWords :: [(PossibleWordIndex, [Text])] -> [Text]
-        allWords assocList = concatMap snd assocList
+        allWords = concatMap snd
     return $ possibleWords lists
 
 indexedWordGenerator :: PossibleWords -> [(Int, PossibleWordIndex)] -> BuilderContext (LinearPhrase Text)
 indexedWordGenerator _ [] = return []
 indexedWordGenerator pws ((wId, pos):rest) = do
     indexedRest <- indexedWordGenerator pws rest
-    let mDict = Map.lookup pos pws
+    let two (MidWord wPOSPrior wPOS _) = WordPair wPOSPrior wPOS
+        two p = p
+        one (MidWord _ wPOS _) = WordSingle wPOS
+        one (LastWord _ wPOS) = WordSingle wPOS
+        one (FirstWord wPOS _) = WordSingle wPOS
+        one (OnlyWord wPOS) = WordSingle wPOS
+        one (WordPair _ wPOS) = WordSingle wPOS
+        one (WordSingle wPOS) = WordSingle wPOS
+        mDict = Map.lookup pos pws <|>
+                Map.lookup (two pos) pws <|> 
+                Map.lookup (one pos) pws
         showWord Nothing = return $ "<" ++ tshow pos ++ " missing>"
         showWord (Just dict) = 
             let count = Vector.length dict
@@ -458,7 +487,7 @@ indexedWordGenerator pws ((wId, pos):rest) = do
     
 buildIndexedWords :: Maybe Text -> [(Int,Text)] -> [(Int, PossibleWordIndex)]
 buildIndexedWords _ [] = []
-buildIndexedWords Nothing [(wId,wPOS)] = [(wId, OneWord wPOS)]
+buildIndexedWords Nothing [(wId,wPOS)] = [(wId, OnlyWord wPOS)]
 buildIndexedWords Nothing ((wId1,wPOS1):((wId2,wPOS2):rest)) = 
     (wId1, FirstWord wPOS1 wPOS2):buildIndexedWords (Just wPOS1) ((wId2,wPOS2):rest)
 buildIndexedWords (Just wPOSPrior) [(wId,wPOS)] = [(wId, LastWord wPOSPrior wPOS)]
@@ -469,7 +498,7 @@ dataWordGenerator :: PossibleWords -> [(Int,Text)] -> BuilderContext (LinearPhra
 dataWordGenerator pws ws = indexedWordGenerator pws $ buildIndexedWords Nothing ws
     
 buildWordGenerator :: Maybe ([Text],PossibleWords) -> Maybe ([Text], WordGenerator Text)
-buildWordGenerator (Just (dictionary, possibles)) = Just $ (dictionary, dataWordGenerator possibles)
+buildWordGenerator (Just (dictionary, possibles)) = Just (dictionary, dataWordGenerator possibles)
 buildWordGenerator Nothing = Nothing
 
 readWordGenerator :: FilePath -> IO (Maybe ([Text], WordGenerator Text))
