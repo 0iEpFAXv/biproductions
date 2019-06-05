@@ -177,7 +177,7 @@ futureTense = (NTFuture, NTFuture) -- "It will stop it."
 
 adjustPattern :: ExampleInfo -> ([Int],[Bool]) -> ([Int],[Bool])
 adjustPattern _ ([], modNexts) = ([], modNexts)
-adjustPattern eInfo (g0:gRest, modNexts) | firstMod eInfo == [] = (g0:gRest, modNexts)
+adjustPattern eInfo (g0:gRest, modNexts) | null (firstMod eInfo) = (g0:gRest, modNexts)
                                          | otherwise = (g0+1:gRest, False:modNexts)
 
 buildExampleDatum :: Int -> [Text] -> [Text] -> ExampleTableId -> [Int] -> (ExampleTableId, Maybe ([ExampleWordLabel], [Text]))
@@ -383,7 +383,7 @@ readFileExamples structFilename possFilename = do
                then concatMap matchSample (zip ss ps) 
                else "Length of struct " ++ tshow lss ++ " does not match " ++ tshow lps
         matchSamples Nothing _ = "Could not correctly read structure samples"
-        matchSamples _ Nothing = "Could not correclty read part-of-speech samples"
+        matchSamples _ Nothing = "Could not correctly read part-of-speech samples"
         matchSample (TagSample sID ews, poss) = 
             let lews = length ews
                 lposs = length poss

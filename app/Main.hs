@@ -35,11 +35,10 @@ getDefaultEnv d var = do
     result <- tryIO $ getEnv "ANALYTIC_SETTINGS"
     let readA (Left _) = d
         readA (Right t) = readDefaultSetting d var $ preprocess t
-        preprocess = (map (map ( uncons . (drop 1) . (Text.split (== '"')) ))) .
-                     (map (Text.split (== ':'))) . 
-                     (Text.split (== ',')) . 
-                     (filter (/= '}')) . 
-                     (filter (/= '{')) . tshow
+        preprocess = map (map ( uncons . drop 1 . Text.split (== '"') ) . Text.split (== ':')) .
+                     Text.split (== ',') . 
+                     filter (/= '}') . 
+                     filter (/= '{') . tshow
     return $ readA result
 
 writeOutput :: Maybe (Linearizer Text) -> Maybe ([Text], WordGenerator Text) -> IO ()

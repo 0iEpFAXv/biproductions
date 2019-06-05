@@ -380,12 +380,12 @@ buildCompoundSentence maxModifiers count = do
 
 generateTense :: BuilderContext Tense
 generateTense = do
-    t1 <- getRandomR (0::Int,3::Int)
-    t2 <- getRandomR (t1,3::Int)
+    t1 <- getRandomR (0::Int,2::Int)
+    t2 <- getRandomR (t1,2::Int)
     let getTense 0 = NTPast
         getTense 1 = NTNow
         getTense 2 = NTFuture
-        getTense _ = NTPlusDelta
+        getTense _ = NTNow
     return (getTense t1, getTense t2)
           
 linearizePhrases :: (Phrase -> BuilderContext (LinearPhrase Text)) -> PhraseSentence -> BuilderContext (LinearPhrase Text)
