@@ -175,6 +175,11 @@ beginningTense = (NTNow, NTFuture)  -- "It is stopping it."
 futureTense :: Tense
 futureTense = (NTFuture, NTFuture) -- "It will stop it."
 
+adjustPattern :: ExampleInfo -> ([Int],[Bool]) -> ([Int],[Bool])
+adjustPattern _ ([], modNexts) = ([], modNexts)
+adjustPattern eInfo (g0:gRest, modNexts) | firstMod eInfo == [] = (g0:gRest, modNexts)
+                                         | otherwise = (g0+1:gRest, False:modNexts)
+
 buildExampleDatum :: Int -> [Text] -> [Text] -> ExampleTableId -> [Int] -> (ExampleTableId, Maybe ([ExampleWordLabel], [Text]))
 buildExampleDatum _ _ _ tableId [] = (tableId, Nothing)
 buildExampleDatum w nounMods nouns (SubjectTable sequenceId) gs = (SubjectTable sequenceId, example)
@@ -206,7 +211,7 @@ buildExampleDatum _ _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the car ran out of gas .")
           
 buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (PrimaryAnalogyTable tense sequenceId, example)
-    where example = sentencify $ exampleDataWithDescriptor gs (selectInfo tense) verbMods verbs modNexts False
+    where example = sentencify $ exampleDataWithDescriptor gs' (selectInfo tense) verbMods verbs modNexts' False
           selectInfo (NTPast, NTPast) = preVerbExampleInfo "had"
           selectInfo (NTPast, NTNow) = verbExampleInfo
           selectInfo (NTPast, NTFuture) = preVerbExampleInfo "be"
@@ -215,14 +220,16 @@ buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (
           selectInfo (NTFuture, NTFuture) = preVerbExampleInfo "will"
           selectInfo _ = verbExampleInfo
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
+          (gs', modNexts') = adjustPattern (selectInfo tense False) (gs, modNexts)
           sentencify Nothing = Nothing
           sentencify (Just (wLs, ws)) = Just (frontWLs++wLs++backWLs, frontWs++ws++backWs)
           (frontWLs, frontWs) = unzip $ map (FrontMatter,) (words "The fox")
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the lazy dog .")
  
 buildExampleDatum w verbMods verbs (AnalogyTable sequenceId) gs = (AnalogyTable sequenceId, example)
-    where example = sentencify $ exampleDataWithDescriptor gs (preVerbExampleInfo "by") verbMods verbs modNexts False
+    where example = sentencify $ exampleDataWithDescriptor gs' (preVerbExampleInfo "by") verbMods verbs modNexts' False
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
+          (gs', modNexts') = adjustPattern (preVerbExampleInfo "by" False) (gs, modNexts)
           sentencify Nothing = Nothing
           sentencify (Just (wLs, ws)) = Just (frontWLs++wLs++backWLs, frontWs++ws++backWs)
           (frontWLs, frontWs) = unzip $ map (FrontMatter,) (words "The fox jumped over the dog")
@@ -415,7 +422,10 @@ readFileExamples structFilename possFilename = do
 linearizeBasicWords :: Map ExampleTableId (Vector ExampleWords) -> ExampleTableId -> BasicPhrase -> BuilderContext (LinearPhrase Text)
 linearizeBasicWords tables k (ms,_,w,exts) = do
     let exampleWordLists = Map.findWithDefault Vector.empty k tables
-        maxWL = Vector.length exampleWordLists
+        traceExampleWordLists = if Vector.null exampleWordLists 
+                                then trace ("looking up " ++ show k ++ ":" ++ show exampleWordLists) exampleWordLists  
+                                else exampleWordLists
+        maxWL = Vector.length traceExampleWordLists
     selection <- getRandomR (0,maxWL-1)
     let wl = maybe [] (mapMaybe filterFn) $ exampleWordLists !? selection
         filterFn (ExampleWord (Modifier mId) pos) = Vector.fromList (zip ms (repeat pos)) !? mId
