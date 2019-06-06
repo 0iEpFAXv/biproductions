@@ -266,7 +266,7 @@ getGroupsLists 3 = [[3],
                    [1,1,1]]
 getGroupsLists 2 = [[2],[1,1]]
 getGroupsLists 1 = [[1]]
-getGroupsLists _ = []
+getGroupsLists _ = [[0]]
 
 maxWidth :: Int
 maxWidth = 5
