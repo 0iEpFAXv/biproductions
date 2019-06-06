@@ -8,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 
 absPath :: FilePath -> FilePath
-absPath f = f --"/home/" ++ f
+absPath f = "/home/" ++ f
 
 main :: IO ()
 main = do
