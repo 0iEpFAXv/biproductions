@@ -7,10 +7,13 @@ import System.Random
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 
+absPath :: FilePath -> FilePath
+absPath f = f --"/home/" ++ f
+
 main :: IO ()
 main = do
-    mLinearizer <- readLinearizer "/home/samples.txt" "/home/possLists.txt"
-    mWordGenerator <- readWordGenerator "/home/corpus.txt"
+    mLinearizer <- readLinearizer (absPath "samples.txt") (absPath "possLists.txt")
+    mWordGenerator <- readWordGenerator (absPath "corpus.txt")
     writeOutput mLinearizer mWordGenerator    
 
 oneSentence :: Linearizer Text -> WordGenerator Text -> IO (InputSentence, Sentence Int)
@@ -55,7 +58,7 @@ writeOutput (Just linearizer) (Just (dictionary, wordGenerator)) = do
         showEncodedSentence (Right iBits, Left oErr) = "(" ++ tshow iBits ++ "," ++ oErr ++ ")"
         showEncodedSentence (Left iErr, Left oErr) = "(" ++ iErr ++ "," ++ oErr ++ ")"
         textSentences = map showEncodedSentence $ encodedSentences sentences
-    writeFileUtf8 "/home/sentences.txt" $ tshow sentences
-    writeFileUtf8 "/home/encodedSentences.txt" $ tshow textSentences
+    writeFileUtf8 (absPath "sentences.txt") $ tshow sentences
+    writeFileUtf8 (absPath "encodedSentences.txt") $ tshow textSentences
     
 writeOutput _ _ = writeFileExamples "/home/samples.txt" "/home/wordLists.txt"

@@ -99,7 +99,7 @@ encodeOneHotInputWords ordinals wordId caps s
             paddedWord = padOrdinal (ohcWords caps) $ encodeBitList wordId
         wordBlock <- encodeOneHotInputWord ordinals word paddedWord
         rest <- encodeOneHotInputWords ordinals (wordId+1) caps s
-        return (wordBlock ++ rest)
+        return $ wordBlock ++ rest
 
 getWordText :: Maybe InputWord -> Text
 getWordText Nothing = ""
@@ -343,7 +343,10 @@ modifieeTemplate (m:rest) o = do
 
 createPhrase :: Int -> BuilderContext BasicPhrase
 createPhrase maxModifiers = do
-    modifierCount <- getRandomR (0, maxModifiers)
+    -- This chain of modifer Counts helps reduce the probability of really long modifier chains.
+    modifierCount'' <- getRandomR (0, maxModifiers)
+    modifierCount' <- getRandomR (0, modifierCount'')
+    modifierCount <- getRandomR (0, modifierCount')
     modifierIds <- replicateM modifierCount nextM
     objectId <- nextM
     let nextIds = drop 1 $ modifierIds ++ [objectId]
@@ -440,27 +443,34 @@ getInputSentence lps = Vector.fromList $ map InputText wordTexts
 computeRelativeCode :: BasicPhrase -> Int
 computeRelativeCode (_, mees, s, _) = meesCode
     where meesCode = decodeBitList $ map (\mee -> if mee == s then 0 else 1) mees
+    
+codeWidth :: BasicPhrase -> Int
+codeWidth (ms, _, _, _) = length ms
        
 relativeLinearizer :: Linearizer Text -> (Int -> Tense) -> Phrase -> BuilderContext (LinearPhrase Text)
-relativeLinearizer l _ (SubjectP p) = l (SubjectCode (computeRelativeCode p) p)
+relativeLinearizer l _ (SubjectP p) = l (SubjectCode (codeWidth p) (computeRelativeCode p) p)
 relativeLinearizer l _ (ConjunctionP p) = l (ConjunctionCode p)
 relativeLinearizer l _ (AnalogyObjectP _ p1 p2) = do
     let c1 = computeRelativeCode p1
         c2 = computeRelativeCode p2
-    aPhrase <- l (AnalogyCode c1 p1)
-    oPhrase <- l (ObjectCode c2 p2)
+        w1 = codeWidth p1
+        w2 = codeWidth p2
+    aPhrase <- l (AnalogyCode w1 c1 p1)
+    oPhrase <- l (ObjectCode w2 c2 p2)
     return $ aPhrase ++ oPhrase
 relativeLinearizer l t (PrimaryAnalogyObjectP tId p1 p2) = do
     let c1 = computeRelativeCode p1
         c2 = computeRelativeCode p2
-    aPhrase <- l (PrimaryAnalogyCode (t tId) c1 p1)
-    oPhrase <- l (ObjectCode c2 p2)
+        w1 = codeWidth p1
+        w2 = codeWidth p2
+    aPhrase <- l (PrimaryAnalogyCode (t tId) w1 c1 p1)
+    oPhrase <- l (ObjectCode w2 c2 p2)
     return $ aPhrase ++ oPhrase
        
 generateSentenceM :: Linearizer Text -> WordGenerator Text -> Int -> BuilderContext (InputSentence, Sentence Int)
 generateSentenceM linearizer wordGenerator maxModifiers = do
     tenseCount <- getRandomR (1,2)
-    analogiesCount <- getRandomR (tenseCount, 10)
+    analogiesCount <- getRandomR (tenseCount, 6)
     tense1 <- generateTense
     tense2 <- generateTense
     let buildSentence 1 = buildSimpleSentence

@@ -34,11 +34,11 @@ type WordGenerator a = LinearPhrase a -> BuilderContext (LinearPhrase Text)
 
 -- BasicPhrase has list of modifiers, modifiees, modified word, and list of extra words for structural grammar
 type BasicPhrase = ([Int],[Int],Int,[Int])
-data PhraseCode = SubjectCode Int BasicPhrase 
+data PhraseCode = SubjectCode Int Int BasicPhrase 
                 | ConjunctionCode BasicPhrase
-                | PrimaryAnalogyCode Tense Int BasicPhrase
-                | AnalogyCode Int BasicPhrase
-                | ObjectCode Int BasicPhrase
+                | PrimaryAnalogyCode Tense Int Int BasicPhrase
+                | AnalogyCode Int Int BasicPhrase
+                | ObjectCode Int Int BasicPhrase
 type Linearizer a = PhraseCode -> BuilderContext (LinearPhrase a)
 
 nextM :: BuilderContext Int
@@ -51,11 +51,11 @@ type ModifierId = Int
 data ExampleWordLabel = FrontMatter | Modifier ModifierId | MainWord | Other Int | BackMatter deriving (Eq, Show, Read)
 data ExampleWord = ExampleWord ExampleWordLabel Text deriving (Eq, Show, Read)
 type ExampleWords = [ExampleWord]
-data ExampleTableId = SubjectTable Int 
+data ExampleTableId = SubjectTable Int Int 
                     | ConjunctionTable 
-                    | PrimaryAnalogyTable Tense Int 
-                    | AnalogyTable Int
-                    | ObjectTable Int deriving (Eq, Ord, Show, Read)
+                    | PrimaryAnalogyTable Tense Int Int 
+                    | AnalogyTable Int Int
+                    | ObjectTable Int Int deriving (Eq, Ord, Show, Read)
 data TagSample = TagSample ExampleTableId ExampleWords deriving (Eq, Show, Read)
 type TagSamples = [TagSample]
 
@@ -69,8 +69,9 @@ type PossibleWordVector = Vector Text
 type PossibleWords = Map PossibleWordIndex PossibleWordVector
 
 padOrdinal :: Int -> [Int] -> [Int]
-padOrdinal size l | 2 ^ length l < size = padOrdinal size (0:l)
-                  | otherwise = l
+padOrdinal s l = replicate extra 0 ++ l'
+    where l' = take s l
+          extra = s - length l'
 
 encodeBitList :: Int -> [Int]
 encodeBitList = reverse . ebv
@@ -180,9 +181,9 @@ adjustPattern _ ([], modNexts) = ([], modNexts)
 adjustPattern eInfo (g0:gRest, modNexts) | null (firstMod eInfo) = (g0:gRest, modNexts)
                                          | otherwise = (g0+1:gRest, False:modNexts)
 
-buildExampleDatum :: Int -> [Text] -> [Text] -> ExampleTableId -> [Int] -> (ExampleTableId, Maybe ([ExampleWordLabel], [Text]))
-buildExampleDatum _ _ _ tableId [] = (tableId, Nothing)
-buildExampleDatum w nounMods nouns (SubjectTable sequenceId) gs = (SubjectTable sequenceId, example)
+buildExampleDatum :: [Text] -> [Text] -> ExampleTableId -> [Int] -> (ExampleTableId, Maybe ([ExampleWordLabel], [Text]))
+buildExampleDatum _ _ tableId [] = (tableId, Nothing)
+buildExampleDatum nounMods nouns (SubjectTable w sequenceId) gs = (SubjectTable w sequenceId, example)
     where example = sentencify $ exampleDataWithDescriptor gs nounExampleInfo nounMods nouns modNexts False
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
@@ -190,7 +191,7 @@ buildExampleDatum w nounMods nouns (SubjectTable sequenceId) gs = (SubjectTable 
           sentencify (Just (wLs, firstWord:restWords)) = Just (wLs++completedwLs, Text.toTitle firstWord:restWords++completedws)
           (completedwLs, completedws) = unzip $ map (BackMatter,) (words "jumped over the back .")
 
-buildExampleDatum w nounMods nouns (ObjectTable sequenceId) gs = (ObjectTable sequenceId, example)
+buildExampleDatum nounMods nouns (ObjectTable w sequenceId) gs = (ObjectTable w sequenceId, example)
     where example = sentencify $ exampleDataWithDescriptor gs nounExampleInfo nounMods nouns modNexts False
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           sentencify Nothing = Nothing
@@ -199,7 +200,7 @@ buildExampleDatum w nounMods nouns (ObjectTable sequenceId) gs = (ObjectTable se
           (frontwLs, frontws) = unzip $ map (FrontMatter,) (words "The mouse jumped over")
           (completedwLs, completedws) = unzip $ map (BackMatter,) ["."]
           
-buildExampleDatum _ _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
+buildExampleDatum _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
     where example = sentencify $ conjunctionExampleData g conjunctions
           conjunctionExampleData _ [] = Nothing
           conjunctionExampleData 0 (c:_) = Just $ unzip (zip (map Other [0..]) c)
@@ -210,7 +211,7 @@ buildExampleDatum _ _ _ ConjunctionTable (g:_) = (ConjunctionTable, example)
           (frontWLs, frontWs) = unzip $ map (FrontMatter,) (words "She stopped it")
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the car ran out of gas .")
           
-buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (PrimaryAnalogyTable tense sequenceId, example)
+buildExampleDatum verbMods verbs (PrimaryAnalogyTable tense w sequenceId) gs = (PrimaryAnalogyTable tense w sequenceId, example)
     where example = sentencify $ exampleDataWithDescriptor gs' (selectInfo tense) verbMods verbs modNexts' False
           selectInfo (NTPast, NTPast) = preVerbExampleInfo "had"
           selectInfo (NTPast, NTNow) = verbExampleInfo
@@ -226,7 +227,7 @@ buildExampleDatum w verbMods verbs (PrimaryAnalogyTable tense sequenceId) gs = (
           (frontWLs, frontWs) = unzip $ map (FrontMatter,) (words "The fox")
           (backWLs, backWs) = unzip $ map (BackMatter,) (words "the lazy dog .")
  
-buildExampleDatum w verbMods verbs (AnalogyTable sequenceId) gs = (AnalogyTable sequenceId, example)
+buildExampleDatum verbMods verbs (AnalogyTable w sequenceId) gs = (AnalogyTable w sequenceId, example)
     where example = sentencify $ exampleDataWithDescriptor gs' (preVerbExampleInfo "by") verbMods verbs modNexts' False
           modNexts = map (== 1) $ padOrdinal (2 ^ w) (encodeBitList sequenceId)
           (gs', modNexts') = adjustPattern (preVerbExampleInfo "by" False) (gs, modNexts)
@@ -256,13 +257,23 @@ getGroupsLists 5 = [[5],
                    [2,2,1],[2,1,2],[1,2,2],
                    [2,1,1,1],[1,2,1,1],[1,1,2,1],[1,1,1,2],
                    [1,1,1,1,1]]
+getGroupsLists 4 = [[4],
+                   [3,1],[1,3],
+                   [2,2],[2,1,1],[1,1,2],[1,2,1],
+                   [1,1,1,1]]
+getGroupsLists 3 = [[3],
+                   [2,1],[1,2],
+                   [1,1,1]]
+getGroupsLists 2 = [[2],[1,1]]
+getGroupsLists 1 = [[1]]
 getGroupsLists _ = []
 
-width :: Int
-width = 5
+maxWidth :: Int
+maxWidth = 5
 
-buildSamples :: (Int -> ExampleTableId) -> [Text] -> [Text] -> [Text] -> Rand StdGen TagSamples
-buildSamples tableId wordMods theWords moreWords = do
+buildSamples :: Int -> (Int -> Int -> ExampleTableId) -> [Text] -> [Text] -> [Text] -> Rand StdGen TagSamples
+buildSamples 0 _ _ _ _ = return []
+buildSamples width tableId wordMods theWords moreWords = do
     wordMods' <- randomize wordMods
     theWords' <- randomize theWords
     moreWords' <- randomize moreWords
@@ -270,11 +281,13 @@ buildSamples tableId wordMods theWords moreWords = do
         options = 2 ^ width
         groups :: [[Int]]
         groups = getGroupsLists width
-        builder = buildExampleDatum width wordMods' (take 1 theWords' ++ moreWords')
-        sequences = map tableId [0..(options-1)] :: [ExampleTableId]
+        builder = buildExampleDatum wordMods' (take 1 theWords' ++ moreWords')
+        sequences = map (tableId width) [0..(options-1)] :: [ExampleTableId]
         sequenceGroups = concatMap (\s -> zip (repeat s) groups) sequences
         exampleData = map (uncurry builder) sequenceGroups
-    return $ mapMaybe convertExampleDataToTagSample exampleData
+        samples = mapMaybe convertExampleDataToTagSample exampleData
+    moreSamples <- buildSamples (width-1) tableId wordMods theWords moreWords
+    return $ samples ++ moreSamples
 
 getNounWords :: ([Text],[Text],[Text])
 getNounWords = (nounMods, nouns, moreNouns)
@@ -282,24 +295,23 @@ getNounWords = (nounMods, nouns, moreNouns)
           nouns = words "fox colonel wines water skies fool vacuum patience lights box"
           moreNouns = words "ceiling vapor chair transformer squirrel slug rock grain rat car"
     
-
 buildSubjectExamples :: Rand StdGen TagSamples
-buildSubjectExamples = buildSamples SubjectTable nounMods nouns moreNouns
+buildSubjectExamples = buildSamples maxWidth SubjectTable nounMods nouns moreNouns
     where (nounMods,nouns,moreNouns) = getNounWords
 
 buildObjectExamples :: Rand StdGen TagSamples
-buildObjectExamples = buildSamples ObjectTable nounMods nouns moreNouns
+buildObjectExamples = buildSamples maxWidth ObjectTable nounMods nouns moreNouns
     where (nounMods,nouns,moreNouns) = getNounWords
 
 buildConjunctionExamples :: Rand StdGen TagSamples
 buildConjunctionExamples = return $ catMaybes samples
-    where conjuctionGroups = map (:[]) [0..width]
-          builder = buildExampleDatum width [] []
+    where conjuctionGroups = map (:[]) [0..maxWidth]
+          builder = buildExampleDatum [] []
           exampleData = map (builder ConjunctionTable) conjuctionGroups
           samples = map convertExampleDataToTagSample exampleData
 
 buildAnalogyExamples :: Rand StdGen TagSamples
-buildAnalogyExamples = buildSamples AnalogyTable verbMods verbs moreMods
+buildAnalogyExamples = buildSamples maxWidth AnalogyTable verbMods verbs moreMods
     where verbMods = words "quickly elaborately plainly usually sedately never always fairly cleanly not"
           verbs = words "jumping helping forcing backing cluttering groaning holding seeing running swimming eating"
           moreMods = words "reluctantly stupidly painfully ultimately stonily thoroughly scantily barely suddenly sparingly"
@@ -309,18 +321,14 @@ buildPrimaryAnalogyExamples = do
     let verbMods = words "quickly elaborately plainly usually sedately never always fairly cleanly not"
         moreMods = words "reluctantly stupidly painfully ultimately stonily thoroughly scantily barely suddenly sparingly"
         tenses = [pastTense, pastNowTense, pastFutureTense, presentTense, beginningTense, futureTense] :: [Tense]
-        verbs (NTPast, NTPast) = if width == 0 then return [] else 
-            words "jumped helped forced backed cluttered groaned held saw ran swam ate"
+        verbs (NTPast, NTPast) = words "jumped helped forced backed cluttered groaned held saw ran swam ate"
         verbs (NTPast, NTNow) = verbs (NTPast, NTPast)
-        verbs (NTPast, NTFuture) = if width == 0 then return [] else 
-            words "jumping helping forcing backing cluttering groaning holding seeing running swimming eating"
+        verbs (NTPast, NTFuture) = words "jumping helping forcing backing cluttering groaning holding seeing running swimming eating"
         verbs (NTNow, NTNow) = words "jumps helps forces backs clutters groans holds sees runs swims eats"
-        verbs (NTNow, NTFuture) = if width == 0 then return [] else 
-            verbs (NTPast, NTFuture)
-        verbs (NTFuture, NTFuture) = if width == 0 then return [] else 
-            words "jump help force back clutter groan hold see run swim eat"
+        verbs (NTNow, NTFuture) = verbs (NTPast, NTFuture)
+        verbs (NTFuture, NTFuture) = words "jump help force back clutter groan hold see run swim eat"
         verbs _ = verbs (NTNow, NTNow)
-    let sample tense = buildSamples (PrimaryAnalogyTable tense) verbMods (verbs tense) moreMods
+    let sample tense = buildSamples maxWidth (PrimaryAnalogyTable tense) verbMods (verbs tense) moreMods
     samples <- mapM sample tenses
     return $ concat samples
 
@@ -422,10 +430,10 @@ readFileExamples structFilename possFilename = do
 linearizeBasicWords :: Map ExampleTableId (Vector ExampleWords) -> ExampleTableId -> BasicPhrase -> BuilderContext (LinearPhrase Text)
 linearizeBasicWords tables k (ms,_,w,exts) = do
     let exampleWordLists = Map.findWithDefault Vector.empty k tables
-        traceExampleWordLists = if Vector.null exampleWordLists 
-                                then trace ("looking up " ++ show k ++ ":" ++ show exampleWordLists) exampleWordLists  
-                                else exampleWordLists
-        maxWL = Vector.length traceExampleWordLists
+        --traceExampleWordLists = if Vector.null exampleWordLists 
+        --                        then trace ("looking up " ++ show k ++ ":" ++ show exampleWordLists) exampleWordLists  
+        --                        else exampleWordLists
+        maxWL = Vector.length exampleWordLists
     selection <- getRandomR (0,maxWL-1)
     let wl = maybe [] (mapMaybe filterFn) $ exampleWordLists !? selection
         filterFn (ExampleWord (Modifier mId) pos) = Vector.fromList (zip ms (repeat pos)) !? mId
@@ -436,11 +444,11 @@ linearizeBasicWords tables k (ms,_,w,exts) = do
     return wl
 
 linearizeWords :: Map ExampleTableId (Vector ExampleWords) -> PhraseCode -> BuilderContext (LinearPhrase Text)
-linearizeWords tables (SubjectCode k bp) = linearizeBasicWords tables (SubjectTable k) bp
+linearizeWords tables (SubjectCode w k bp) = linearizeBasicWords tables (SubjectTable w k) bp
 linearizeWords tables (ConjunctionCode bp) = linearizeBasicWords tables ConjunctionTable bp
-linearizeWords tables (PrimaryAnalogyCode t k bp) = linearizeBasicWords tables (PrimaryAnalogyTable t k) bp
-linearizeWords tables (AnalogyCode k bp) = linearizeBasicWords tables (AnalogyTable k) bp
-linearizeWords tables (ObjectCode k bp) = linearizeBasicWords tables (ObjectTable k) bp
+linearizeWords tables (PrimaryAnalogyCode t w k bp) = linearizeBasicWords tables (PrimaryAnalogyTable t w k) bp
+linearizeWords tables (AnalogyCode w k bp) = linearizeBasicWords tables (AnalogyTable w k) bp
+linearizeWords tables (ObjectCode w k bp) = linearizeBasicWords tables (ObjectTable w k) bp
 
 buildLinearizer :: Maybe TagSamples -> Maybe (Linearizer Text)
 buildLinearizer Nothing = Nothing
@@ -486,7 +494,10 @@ indexedWordGenerator pws ((wId, pos):rest) = do
         mDict = Map.lookup pos pws <|>
                 Map.lookup (two pos) pws <|> 
                 Map.lookup (one pos) pws
-        showWord Nothing = return $ "<" ++ tshow pos ++ " missing>"
+        -- showWord Nothing = return $ "<" ++ tshow pos ++ " missing>"
+        -- Sorry for this, but the f-bomb has the property of being practically every part of speech, so it is a 
+        -- good give up condition
+        showWord Nothing = return "fuck"
         showWord (Just dict) = 
             let count = Vector.length dict
             in if count == 0 then return $ "<" ++ tshow pos ++ " empty>"
