@@ -29,19 +29,19 @@ readDefaultSetting d var settings = maybe d (readDefault d) $ Map.lookup var s
           toAssociation _ = Nothing
 
 -- "ANALYTIC_SETTINGS" will look something like: 
--- "{ /"function/":/"fft/",
---    /"n/": /"0/",
---    /"axis/": /"x/",
---    /"norm/": /"max/" }"
+-- "{ \"function\":\"fft\",
+--    \"n\": \"0\",
+--    \"axis\": \"x\",
+--    \"norm\": \"max\" }"
 getDefaultEnv :: Read a => a -> Text -> IO a
 getDefaultEnv d var = do
     result <- tryIO $ getEnv "ANALYTIC_SETTINGS"
     let readA (Left _) = d
-        readA (Right t) = readDefaultSetting d var $ preprocess t
+        readA (Right t) = readDefaultSetting d var $ traceShowId $ preprocess (traceShowId t)
         preprocess = map (map ( uncons . drop 1 . Text.split (== '"') ) . Text.split (== ':')) .
                      Text.split (== ',') . 
                      filter (/= '}') . 
-                     filter (/= '{') . tshow
+                     filter (/= '{') . pack
     return $ readA result
 
 writeOutput :: Maybe (Linearizer Text) -> Maybe ([Text], WordGenerator Text) -> IO ()
