@@ -16,7 +16,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vector
 import qualified Data.Text as Text
 import Data.Vector ((!?))
-import System.IO (hPutStr)
+--import System.IO (hPutStr)
 import Control.Monad.Random.Lazy hiding (replicateM)
 import Control.Monad.Trans.State.Lazy
 
@@ -272,7 +272,7 @@ maxWidth :: Int
 maxWidth = 5
 
 buildSamples :: Int -> (Int -> Int -> ExampleTableId) -> [Text] -> [Text] -> [Text] -> Rand StdGen TagSamples
-buildSamples 0 _ _ _ _ = return []
+buildSamples (-1) _ _ _ _ = return []
 buildSamples width tableId wordMods theWords moreWords = do
     wordMods' <- randomize wordMods
     theWords' <- randomize theWords
@@ -400,7 +400,7 @@ readFileExamples structFilename possFilename = do
                else "Length of sample " ++ tshow sID ++ " , " ++ tshow lews ++ " does not match " ++ tshow lposs ++ "\n"
     if failMatch 
     then do
-        hPutStr stderr $ show (matchError ++ "\n")
+        putStrLn $ matchError
         return Nothing
     else do
         putStrLn "Successful read of file examples"
