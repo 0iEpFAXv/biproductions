@@ -37,7 +37,7 @@ getDefaultEnv :: Read a => a -> Text -> IO a
 getDefaultEnv d var = do
     result <- tryIO $ getEnv "ANALYTIC_SETTINGS"
     let readA (Left _) = d
-        readA (Right t) = readDefaultSetting d var $ traceShowId $ preprocess (traceShowId t)
+        readA (Right t) = readDefaultSetting d var $ preprocess t
         preprocess = map (map ( uncons . drop 1 . Text.split (== '"') ) . Text.split (== ':')) .
                      Text.split (== ',') . 
                      filter (/= '}') . 
