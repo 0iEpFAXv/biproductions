@@ -73,10 +73,11 @@ padOrdinal s l = replicate extra 0 ++ l'
     where l' = take s l
           extra = s - length l'
 
-encodeBitList :: Int -> [Int]
+encodeBitList :: Integral a => a -> [Int]
 encodeBitList = reverse . ebv
     where ebv 0 = []
-          ebv n = (n `mod` 2) : ebv (n `div` 2)
+          ebv n = val n : ebv (n `div` 2)
+          val n = if n `mod` 2 == 1 then 1 else 0
 
 decodeBitList :: [Int] -> Int
 decodeBitList vec = decodeReverseBitList 0 0 $ reverse vec
@@ -400,7 +401,7 @@ readFileExamples structFilename possFilename = do
                else "Length of sample " ++ tshow sID ++ " , " ++ tshow lews ++ " does not match " ++ tshow lposs ++ "\n"
     if failMatch 
     then do
-        putStrLn $ matchError
+        putStrLn matchError
         return Nothing
     else do
         putStrLn "Successful read of file examples"

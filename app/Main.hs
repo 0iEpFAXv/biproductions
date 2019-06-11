@@ -8,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 
 absPath :: FilePath -> FilePath
-absPath f = "/home/" ++ f
+absPath f = f -- "/home/" ++ f
 
 main :: IO ()
 main = do
@@ -44,21 +44,37 @@ getDefaultEnv d var = do
                      filter (/= '{') . pack
     return $ readA result
 
+encodeWordExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> [(Either Text [Int], Either Text Int)]
+encodeWordExamples caps ordinals (is, ls) = map encodePair wIds
+    where wIds = [0..((length is)-1)]
+          encodePair wId = (encodeInputWords wId ordinals caps is, encodeOutputWord wId caps ls)
+
+encodeIsAnalogyExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> [(Either Text [Int], Either Text Int)]
+encodeIsAnalogyExamples caps ordinals (is, ls) = map encodePair wIds
+    where wIds = [0..((length is)-1)]
+          encodePair wId = (encodeInputWords wId ordinals caps is, encodeOutputIsAnalogy wId caps ls)
+
+encodeTenseExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> (Either Text [Int], Either Text Integer)
+encodeTenseExamples caps ordinals (is, ls) = encodePair
+    where encodePair = (encodeInputWords pivotId ordinals caps is, encodeTenses caps ls 0)
+          pivotId = min (1 + ohcSplit caps) ((length is)-1)
+
 writeOutput :: Maybe (Linearizer Text) -> Maybe ([Text], WordGenerator Text) -> IO ()
 writeOutput (Just linearizer) (Just (dictionary, wordGenerator)) = do
     count <- getDefaultEnv 1000 "count"
-    sentences <- replicateM count $ oneSentence linearizer wordGenerator
-    let ordinals = buildWordOrdinals dictionary
-        encodeInput = encodeOneHotInput ordinals defaultOneHotCaps
-        encodeOutput = encodeOneHotOutput defaultOneHotCaps
-        encodedSentences :: [(InputSentence, Sentence Int)] -> [(Either Text [Int], Either Text [Int])]
-        encodedSentences = map (\(i,o) -> (encodeInput i, encodeOutput o))
-        showEncodedSentence (Right iBits, Right oBits) = "(" ++ tshow iBits ++ "," ++ tshow oBits ++ ")"
-        showEncodedSentence (Left iErr, Right oBits) = "(" ++ iErr ++ "," ++ tshow oBits ++ ")"
-        showEncodedSentence (Right iBits, Left oErr) = "(" ++ tshow iBits ++ "," ++ oErr ++ ")"
-        showEncodedSentence (Left iErr, Left oErr) = "(" ++ iErr ++ "," ++ oErr ++ ")"
-        textSentences = map showEncodedSentence $ encodedSentences sentences
+    sentences <- replicateM count $ oneSentence linearizer wordGenerator :: IO [(InputSentence, Sentence Int)]
+    let ordinals = wordOrdinals dictionary
+        wordExamples = concatMap (encodeWordExamples defaultOneHotCaps ordinals) sentences
+        isAnalogyExamples = concatMap (encodeIsAnalogyExamples defaultOneHotCaps ordinals) sentences
+        tenseExamples = map (encodeTenseExamples defaultOneHotCaps ordinals) sentences
+        showExample (Right iWords, Right oWord) = Text.intercalate "," (map tshow iWords) ++ "," ++ tshow oWord ++ "\n"
+        showExample (Left iErr, Right oWord) = iErr ++ "," ++ tshow oWord ++ "\n"
+        showExample (Right iWords, Left oErr) = Text.intercalate "," (map tshow iWords) ++ "," ++ oErr ++ "\n"
+        showExample (Left iErr, Left oErr) = iErr ++ "," ++ oErr ++ "\n"
+        showTextExamples examples = concatMap showExample examples
     writeFileUtf8 (absPath "sentences.txt") $ tshow sentences
-    writeFileUtf8 (absPath "encodedSentences.txt") $ tshow textSentences
+    writeFileUtf8 (absPath "isAnalogyTraining.txt") $ showTextExamples isAnalogyExamples
+    writeFileUtf8 (absPath "wordTraining.txt") $ showTextExamples wordExamples
+    writeFileUtf8 (absPath "tensesTraining.txt") $ showTextExamples tenseExamples
     
 writeOutput _ _ = writeFileExamples "/home/samples.txt" "/home/wordLists.txt"
