@@ -15,6 +15,6 @@ genSmallInt = abs `fmap` (arbitrary :: Gen Int) `suchThat` (\x -> x > 0 && x < 2
 
 main :: IO ()
 main = do
-    quickCheck $ forAll genSmallInt $ prop_decodedEncodedInt
-    quickCheck $ forAll genSmallInt $ prop_padOrdinalLength
+    quickCheck $ forAll genSmallInt prop_decodedEncodedInt
+    quickCheck $ forAll genSmallInt prop_padOrdinalLength
     
