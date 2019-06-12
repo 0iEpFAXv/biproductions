@@ -80,7 +80,7 @@ wordOrdinals dictionary = lookUps
           findMaxBit 0 mB = mB
           findMaxBit n mB = findMaxBit (shift n (-1)) (mB+1)
           maxBit = findMaxBit count 0
-          indexedSet l removeBits = Map.fromAscList $ zip (uniqueSort l) (map (\n -> shift n removeBits) [1..])
+          indexedSet l removeBits = Map.fromAscList $ zip (uniqueSort l) (map (`shift` removeBits) [1..])
           s = indexedSet (map toLower dictionary) (min 0 (16 - maxBit)) 
           rs = indexedSet (map (toLower . reverse) dictionary) (min 0 (8 - maxBit)) 
           lookUp :: Integral a => Text -> Map Text a -> a
@@ -117,7 +117,7 @@ encodeInputWord ordinals iw = wordInt
           capitalB = maybe False (Char.isUpper . fst) $ uncons wordText
           capital = if capitalB then 1 else 0
           (ordF, ordR) = ordinals wordText
-          wordInt = shift present (1+16+8) + shift capital (16+8) + shift ordF (8) + ordR 
+          wordInt = shift present (1+16+8) + shift capital (16+8) + shift ordF 8 + ordR 
 
 decodeInputWord :: WordOrdinals Integer -> InputWord -> Integer -> Either Text InputWord
 decodeInputWord ordinals iw wordInt | present' /= present = Left "present bits do not match"
@@ -131,7 +131,7 @@ decodeInputWord ordinals iw wordInt | present' /= present = Left "present bits d
           capitalB' = maybe False (Char.isUpper . fst) $ uncons wordText'
           capital' = if capitalB' then 1 else 0
           (ordF', ordR') = ordinals wordText'
-          wordInt' = shift present' (1+16+8) + shift capital' (16+8) + shift ordF' (8) + ordR' 
+          wordInt' = shift present' (1+16+8) + shift capital' (16+8) + shift ordF' 8 + ordR' 
           ordR = wordInt .&. ((2::Integer)^(8::Integer)-1)
           ordF = shift wordInt (-8) .&. ((2::Integer)^(16::Integer)-1)
           capital = shift wordInt (-8-16) .&. 1::Integer

@@ -8,7 +8,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 
 absPath :: FilePath -> FilePath
-absPath f = f -- "/home/" ++ f
+absPath f = "/home/" ++ f
 
 main :: IO ()
 main = do
@@ -46,18 +46,18 @@ getDefaultEnv d var = do
 
 encodeWordExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> [(Either Text [Int], Either Text Int)]
 encodeWordExamples caps ordinals (is, ls) = map encodePair wIds
-    where wIds = [0..((length is)-1)]
+    where wIds = [0..(length is-1)]
           encodePair wId = (encodeInputWords wId ordinals caps is, encodeOutputWord wId caps ls)
 
 encodeIsAnalogyExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> [(Either Text [Int], Either Text Int)]
 encodeIsAnalogyExamples caps ordinals (is, ls) = map encodePair wIds
-    where wIds = [0..((length is)-1)]
+    where wIds = [0..(length is-1)]
           encodePair wId = (encodeInputWords wId ordinals caps is, encodeOutputIsAnalogy wId caps ls)
 
 encodeTenseExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> (Either Text [Int], Either Text Integer)
 encodeTenseExamples caps ordinals (is, ls) = encodePair
     where encodePair = (encodeInputWords pivotId ordinals caps is, encodeTenses caps ls 0)
-          pivotId = min (1 + ohcSplit caps) ((length is)-1)
+          pivotId = min (1 + ohcSplit caps) (length is-1)
 
 writeOutput :: Maybe (Linearizer Text) -> Maybe ([Text], WordGenerator Text) -> IO ()
 writeOutput (Just linearizer) (Just (dictionary, wordGenerator)) = do
