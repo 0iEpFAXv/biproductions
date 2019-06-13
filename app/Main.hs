@@ -1,31 +1,32 @@
 module Main where
 
-import ClassyPrelude
+import ClassyPrelude hiding (intercalate)
 import BiProductionsLib
 import System.Environment
-import System.Random
+import System.Random hiding (split)
 import qualified Data.Map.Strict as Map
-import qualified Data.Text as Text
+--import qualified Data.Text as Text
+import Data.Text (split, intercalate)
+import qualified Data.Text.Lazy as LT
+import qualified Data.ByteString as BS
 
-absPath :: FilePath -> FilePath
-absPath f = "/home/" ++ f
+absPath :: FilePath -> FilePath -> FilePath
+absPath path f = path ++ f
 
 main :: IO ()
 main = do
-    mLinearizer <- readLinearizer (absPath "samples.txt") (absPath "possLists.txt")
-    mWordGenerator <- readWordGenerator (absPath "corpus.txt")
+    path <- getDefaultEnv "/home/" "path"
+    mLinearizer <- readLinearizer (absPath path "samples.txt") (absPath path "possLists.txt")
+    mWordGenerator <- readWordGenerator (absPath path "corpus.txt")
     writeOutput mLinearizer mWordGenerator    
-
-oneSentence :: Linearizer Text -> WordGenerator Text -> IO (InputSentence, Sentence Int)
-oneSentence linearizer wordGenerator = generateSentence linearizer wordGenerator 5 <$> newStdGen
 
 readDefault :: Read a => a -> Text -> a
 readDefault d t = fromMaybe d $ readMay t
 
-readDefaultSetting :: Read a => a -> Text -> [[Maybe (Text,[Text])]] -> a
+readDefaultSetting :: Read a => a -> Text -> [[Text]] -> a
 readDefaultSetting d var settings = maybe d (readDefault d) $ Map.lookup var s
     where s = Map.fromList $ mapMaybe toAssociation settings
-          toAssociation [Just (key,_),Just (value,_)] = Just (key, value)
+          toAssociation [key,value] = Just (key, value)
           toAssociation _ = Nothing
 
 -- "ANALYTIC_SETTINGS" will look something like: 
@@ -38,8 +39,11 @@ getDefaultEnv d var = do
     result <- tryIO $ getEnv "ANALYTIC_SETTINGS"
     let readA (Left _) = d
         readA (Right t) = readDefaultSetting d var $ preprocess t
-        preprocess = map (map ( uncons . drop 1 . Text.split (== '"') ) . Text.split (== ':')) .
-                     Text.split (== ',') . 
+        preprocess = map (map (intercalate "\"" . 
+                               (\ts -> take (length ts - 1) ts) . 
+                               drop 1 . 
+                               split (== '"') ) . split (== ':')) .
+                     split (== ',') . 
                      filter (/= '}') . 
                      filter (/= '{') . pack
     return $ readA result
@@ -59,22 +63,46 @@ encodeTenseExamples caps ordinals (is, ls) = encodePair
     where encodePair = (encodeInputWords pivotId ordinals caps is, encodeTenses caps ls 0)
           pivotId = min (1 + ohcSplit caps) (length is-1)
 
+showSentences :: Linearizer Text -> WordGenerator Text -> StdGen -> Int -> ((InputSentence, Sentence Int) -> Text) -> [Text]
+showSentences _ _ _ 0 _ = []
+showSentences linearizer wordGenerator g count showFn = showFn sentence : showSentences linearizer wordGenerator g' (count-1) showFn
+    where (sentence, g') = generateSentence linearizer wordGenerator 5 g
+
+writeFileUtf8s :: (MonadIO m) => FilePath -> [Text] -> m ()
+writeFileUtf8s fp [] = liftIO . BS.writeFile fp . encodeUtf8 $ ""
+writeFileUtf8s fp (c:chunks) = do
+    liftIO . BS.writeFile fp . encodeUtf8 $ c
+    appendFileUtf8s fp chunks
+
+lazyWriteFileUtf8 :: (MonadIO m) => FilePath -> LT.Text -> m ()
+lazyWriteFileUtf8 fp = writeFileUtf8s fp . toChunks
+
+appendFileUtf8s :: (MonadIO m) => FilePath -> [Text] -> m ()
+appendFileUtf8s fp = mapM_ (liftIO . BS.appendFile fp . encodeUtf8)
+
+lazyAppendFileUtf8 :: (MonadIO m) => FilePath -> LT.Text -> m ()
+lazyAppendFileUtf8 fp = appendFileUtf8s fp . toChunks
+
 writeOutput :: Maybe (Linearizer Text) -> Maybe ([Text], WordGenerator Text) -> IO ()
 writeOutput (Just linearizer) (Just (dictionary, wordGenerator)) = do
     count <- getDefaultEnv 1000 "count"
-    sentences <- replicateM count $ oneSentence linearizer wordGenerator :: IO [(InputSentence, Sentence Int)]
+    stdGen <- newStdGen
+    path <- getDefaultEnv "/home/" "path"
     let ordinals = wordOrdinals dictionary
-        wordExamples = concatMap (encodeWordExamples defaultOneHotCaps ordinals) sentences
-        isAnalogyExamples = concatMap (encodeIsAnalogyExamples defaultOneHotCaps ordinals) sentences
-        tenseExamples = map (encodeTenseExamples defaultOneHotCaps ordinals) sentences
-        showExample (Right iWords, Right oWord) = Text.intercalate "," (map tshow iWords) ++ "," ++ tshow oWord ++ "\n"
+        wordExample = encodeWordExamples defaultOneHotCaps ordinals
+        isAnalogyExample = encodeIsAnalogyExamples defaultOneHotCaps ordinals
+        tenseExample = encodeTenseExamples defaultOneHotCaps ordinals
+        showExample :: (Show a) => (Either Text [Int], Either Text a) -> Text
+        showExample (Right iWords, Right oWord) = intercalate "," (map tshow iWords) ++ "," ++ tshow oWord ++ "\n"
         showExample (Left iErr, Right oWord) = iErr ++ "," ++ tshow oWord ++ "\n"
-        showExample (Right iWords, Left oErr) = Text.intercalate "," (map tshow iWords) ++ "," ++ oErr ++ "\n"
+        showExample (Right iWords, Left oErr) = intercalate "," (map tshow iWords) ++ "," ++ oErr ++ "\n"
         showExample (Left iErr, Left oErr) = iErr ++ "," ++ oErr ++ "\n"
-        showTextExamples examples = concatMap showExample examples
-    writeFileUtf8 (absPath "sentences.txt") $ tshow sentences
-    writeFileUtf8 (absPath "isAnalogyTraining.txt") $ showTextExamples isAnalogyExamples
-    writeFileUtf8 (absPath "wordTraining.txt") $ showTextExamples wordExamples
-    writeFileUtf8 (absPath "tensesTraining.txt") $ showTextExamples tenseExamples
+        sentences = showSentences linearizer wordGenerator stdGen count
+    writeFileUtf8 (absPath path "sentences.txt") $ "["
+    lazyAppendFileUtf8 (absPath path "sentences.txt") $ LT.intercalate ",\n" (map LT.fromStrict (sentences tshow))
+    appendFileUtf8s (absPath path "sentences.txt") $ ["]"]
+    writeFileUtf8s (absPath path "isAnalogyTraining.txt") $ sentences (concatMap showExample . isAnalogyExample)
+    writeFileUtf8s (absPath path "wordTraining.txt") $ sentences (concatMap showExample . wordExample)
+    writeFileUtf8s (absPath path "tensesTraining.txt") $ sentences (showExample . tenseExample)
     
 writeOutput _ _ = writeFileExamples "/home/samples.txt" "/home/wordLists.txt"

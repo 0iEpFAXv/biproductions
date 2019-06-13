@@ -478,5 +478,5 @@ generateSentenceM linearizer wordGenerator maxModifiers = do
         inputSentence = getInputSentence wordSentence
     return (inputSentence, packedLogicalSentence)
 
-generateSentence :: Linearizer Text -> WordGenerator Text -> Int -> StdGen -> (InputSentence, Sentence Int)
-generateSentence linearizer wg maxModifiers g = evalState (evalRandT (generateSentenceM linearizer wg maxModifiers) g) 0
+generateSentence :: Linearizer Text -> WordGenerator Text -> Int -> StdGen -> ((InputSentence, Sentence Int), StdGen)
+generateSentence linearizer wg maxModifiers g = evalState (runRandT (generateSentenceM linearizer wg maxModifiers) g) 0

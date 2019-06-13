@@ -28,6 +28,7 @@ executables:
       - app
     dependencies:
       - biproductions
+      - bytestring
       
 dependencies:
   - base
