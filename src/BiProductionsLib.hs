@@ -94,7 +94,7 @@ wordOrdinals dictionary = lookUps
 --   8 bits: most significant bits of word ordinal sorted reverse
 encodeInputWords :: Int -> WordOrdinals Int -> OneHotCaps -> InputSentence -> Either Text [Int]
 encodeInputWords pivot ordinals caps s | pivot >= length s = Left "pivot word is past end of sentence"
-                                       | otherwise = Right $ fWords' ++ [wordNum] ++ bWords'
+                                       | otherwise = Right wordBits
     where (f, r) = splitAt (pivot-1) $ Vector.toList s
           mR = uncons r
           (w, b) = fromMaybe (InputText "", []) mR
@@ -103,6 +103,7 @@ encodeInputWords pivot ordinals caps s | pivot >= length s = Left "pivot word is
           fWords' = reverse $ padWords (reverse f)
           wordNum = encodeW w
           bWords' = padWords b
+          wordBits = concatMap (padOrdinal (16+8+1+1) . encodeBitList) $ fWords' ++ [wordNum] ++ bWords'
 
 getWordText :: Maybe InputWord -> Text
 getWordText Nothing = ""
