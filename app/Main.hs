@@ -85,9 +85,9 @@ lazyAppendFileUtf8 :: (MonadIO m) => FilePath -> LT.Text -> m ()
 lazyAppendFileUtf8 fp = appendFileUtf8s fp . toChunks
 
 writeOutput :: Text -> IO ()
-writeOutput "A" = writeFileExamples "/home/samples.txt" "/home/wordLists.txt" 
+writeOutput "A" = writeFileExamples "/home/data/samples.txt" "/home/data/wordLists.txt" 
 writeOutput "B" = do
-    path <- getDefaultEnv "/home/" "path"
+    path <- getDefaultEnv "/home/data/" "path"
     (Just linearizer) <- readLinearizer (absPath path "samples.txt") (absPath path "possLists.txt")
     (Just (dictionary, wordGenerator)) <- readWordGenerator (absPath path "corpus.txt")
     count <- getDefaultEnv 1000 "count"
@@ -120,7 +120,7 @@ writeOutput "B" = do
     writeFileUtf8s (absPath path "tensesTraining2S.txt") $ sentences (showExample . tenseExample 1 True)
     writeFileUtf8s (absPath path "tensesTraining2E.txt") $ sentences (showExample . tenseExample 1 False)
 writeOutput "C" = do
-    path <- getDefaultEnv "/home/" "path"
+    path <- getDefaultEnv "/home/data/" "path"
     (Just (dictionary, _)) <- readWordGenerator (absPath path "corpus.txt")
     (Just texts) <- maybeReadUtf8 (absPath path "texts.txt")
     let ordinals = wordOrdinals dictionary
@@ -135,7 +135,7 @@ writeOutput "C" = do
         showSentence (Left iErr) = iErr ++ "\n"
     writeFileUtf8s (absPath path "encodedInputs.txt") $ map showSentence sentences
 writeOutput "D" = do
-    path <- getDefaultEnv "/home/" "path"
+    path <- getDefaultEnv "/home/data/" "path"
     (Just (dictionary, _)) <- readWordGenerator (absPath path "corpus.txt")
     (Just texts) <- maybeReadUtf8 (absPath path "texts.txt")
     (Just isVerbs) <- maybeReadUtf8 (absPath path "isVerbs.txt")
@@ -160,7 +160,7 @@ writeOutput "D" = do
         showSentence (Left iErr) = iErr ++ "\n"
     writeFileUtf8s (absPath path "encodedSOVInputs.txt") $ map showSentence sentences
 writeOutput "E" = do
-    path <- getDefaultEnv "/home/" "path"
+    path <- getDefaultEnv "/home/data/" "path"
     (Just ohTense1S) <- maybeReadUtf8 (absPath path "ohTense1S.txt")
     (Just ohTense1E) <- maybeReadUtf8 (absPath path "ohTense1E.txt")
     (Just ohTense2S) <- maybeReadUtf8 (absPath path "ohTense2S.txt")
