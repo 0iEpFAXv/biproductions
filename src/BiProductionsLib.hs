@@ -1,9 +1,10 @@
 module BiProductionsLib
     ( InputWord(InputText, InputTime, InputRelativeTime), InputSentence,
       TenseId, Modifier(Modifier), Analogy(Analogy), Sentence(Sentence),
-      OneHotCaps(ohcWords, ohcTenses), ohcSplit, ohcTensesWidth, defaultOneHotCaps, wordOrdinals, WordOrdinals,
+      OneHotCaps(ohcWords, ohcTenses), ohcSplit, ohcTenseWidth, defaultOneHotCaps, wordOrdinals, WordOrdinals,
       mapMSentence,
-      encodeInputWords, encodeInputWord, decodeInputWord, encodeOutputWord, encodeOutputIsAnalogy, encodeTenses, 
+      encodeInputWords, encodeSentenceInputWords, encodeSOVInputWords, encodeInputWord, 
+      decodeInputWord, encodeOutputModifier, encodeOutputIs, encodeTense, 
       decodeOneHotTense, decodeEncodeOneHotOutput, decodeSentence, decodeTenses,
       Phrase(SubjectP, ConjunctionP, AnalogyObjectP, PrimaryAnalogyObjectP),
       generateSentence, 
@@ -16,8 +17,8 @@ module BiProductionsLib
       BasicPhrase, PhraseCode(SubjectCode, ConjunctionCode, PrimaryAnalogyCode, AnalogyCode, ObjectCode), Linearizer, 
       encodeBitList, decodeBitList, decodeBitVector, padOrdinal,
       basicExampleData, exampleDataWithDescriptor, nounExampleInfo, verbExampleInfo, preVerbExampleInfo,
-      showPossibleWords, showExamples, readFileExamples, 
-      writeFileExamples, readWordGenerator, readLinearizer      
+      maybeReadUtf8, showPossibleWords, showExamples, readFileExamples, 
+      writeFileExamples, readWordGenerator, readLinearizer
       
     ) where
 
@@ -29,6 +30,7 @@ import Data.Sort (uniqueSort)
 import Control.Monad.Random.Lazy hiding (replicateM)
 import Control.Monad.Trans.State.Lazy
 import EnglishExamples
+import Data.List (nub)
 import Data.Bits (shift, (.&.), Bits)
 
 data InputWord = InputText Text | InputTime Text UTCTime | InputRelativeTime Text Double 
@@ -87,23 +89,27 @@ wordOrdinals dictionary = lookUps
           lookUp w d = maybe 0 snd (Map.lookupLE w d)
           lookUps w = (lookUp lw s, lookUp (reverse lw) rs) where lw = toLower w
 
--- wordCap integers made of:
---   1 bit: is present
---   1 bit: is capitalized
---   16 bits: most significant bits of word ordinal sorted forward
---   8 bits: most significant bits of word ordinal sorted reverse
-encodeInputWords :: Int -> WordOrdinals Int -> OneHotCaps -> InputSentence -> Either Text [Int]
-encodeInputWords pivot ordinals caps s | pivot >= length s = Left "pivot word is past end of sentence"
-                                       | otherwise = Right wordBits
-    where (f, r) = splitAt (pivot-1) $ Vector.toList s
+encodeInputWords :: Int -> WordOrdinals Int -> OneHotCaps -> InputSentence 
+                        -> Either Text [Int]
+encodeInputWords = encodeCoreInputWords encodeInputWord (16+8+1+1)
+
+encodeCoreInputWords :: (WordOrdinals Int -> (InputWord, Int) -> Int) 
+                        -> Int -> Int -> WordOrdinals Int -> OneHotCaps -> InputSentence 
+                        -> Either Text [Int]
+encodeCoreInputWords encoder padding pivot ordinals caps s | pivot >= length s = Left "pivot word is past end of sentence"
+                                                           | otherwise = Right wordBits
+    where (f, r) = splitAt (pivot-1) $ zip (Vector.toList s) [0..]
           mR = uncons r
-          (w, b) = fromMaybe (InputText "", []) mR
-          encodeW = encodeInputWord ordinals
+          (w, b) = fromMaybe ((InputText "",pivot), []) mR
+          encodeW = encoder ordinals
           padWords ws = take (ohcSplit caps) $ map encodeW ws ++ repeat 0
           fWords' = reverse $ padWords (reverse f)
           wordNum = encodeW w
           bWords' = padWords b
-          wordBits = concatMap (padOrdinal (16+8+1+1) . encodeBitList) $ fWords' ++ [wordNum] ++ bWords'
+          wordBits = concatMap (padOrdinal padding . encodeBitList) $ fWords' ++ [wordNum] ++ bWords'
+
+encodeSentenceInputWords :: Sentence Int -> Int -> WordOrdinals Int -> OneHotCaps -> InputSentence -> Either Text [Int]
+encodeSentenceInputWords s = encodeCoreInputWords (encodeSentenceInputWord s) (1+1+16+8+1+1+1)
 
 getWordText :: Maybe InputWord -> Text
 getWordText Nothing = ""
@@ -111,14 +117,58 @@ getWordText (Just (InputText t)) = t
 getWordText (Just (InputTime t _)) = t
 getWordText (Just (InputRelativeTime t _)) = t
 
-encodeInputWord :: WordOrdinals Int -> InputWord -> Int
-encodeInputWord ordinals iw = wordInt
+-- integers made of:
+--   1 bit: is present
+--   1 bit: is capitalized
+--   16 bits: most significant bits of word ordinal sorted forward
+--   8 bits: most significant bits of word ordinal sorted reverse
+encodeInputWord :: WordOrdinals Int -> (InputWord, Int) -> Int
+encodeInputWord ordinals (iw,_) = wordInt
     where wordText = getWordText $ Just iw
           present = if wordText == "" then 0 else 1
           capitalB = maybe False (Char.isUpper . fst) $ uncons wordText
           capital = if capitalB then 1 else 0
           (ordF, ordR) = ordinals wordText
           wordInt = shift present (1+16+8) + shift capital (16+8) + shift ordF 8 + ordR 
+
+encodeSentenceInputWord :: Sentence Int -> WordOrdinals Int -> (InputWord, Int) -> Int
+encodeSentenceInputWord (Sentence _ _ as) ordinals (iw, iwId) = encodeSOVInputWord subject object verb ordinals (iw, iwId)
+    where isSubject (Analogy _ s _ _) = s == iwId
+          isObject (Analogy _ _ o _) = o == iwId
+          isVerb (Analogy _ _ _ v) = v == iwId
+          subject = if Vector.any isSubject as then 1 else 0
+          object = if Vector.any isObject as then 1 else 0
+          verb = if Vector.any isVerb as then 1 else 0
+
+encodeSOVInputWords :: [Int] -> [Int] -> [Int] -> Int -> WordOrdinals Int -> OneHotCaps -> InputSentence -> Either Text [Int]
+encodeSOVInputWords ss os vs = encodeCoreInputWords (encodeSOVsInputWord ss os vs) (1+1+16+8+1+1+1)
+
+-- integers made of:
+--   1 bit: is present
+--   1 bit: is capitalized
+--   16 bits: most significant bits of word ordinal sorted forward
+--   8 bits: most significant bits of word ordinal sorted reverse
+--   1 bit: is subject
+--   1 bit: is object
+--   1 bit: is verb
+encodeSOVsInputWord :: [Int] -> [Int] -> [Int] -> WordOrdinals Int -> (InputWord, Int) -> Int
+encodeSOVsInputWord subjects objects verbs ordinals (iw,iwId) = encodeSOVInputWord subject object verb ordinals (iw,iwId)
+    where subject = maybe 0 fst $ uncons (drop iwId subjects)
+          object = maybe 0 fst $ uncons (drop iwId objects)
+          verb = maybe 0 fst $ uncons (drop iwId verbs)
+
+-- integers made of:
+--   1 bit: is present
+--   1 bit: is capitalized
+--   16 bits: most significant bits of word ordinal sorted forward
+--   8 bits: most significant bits of word ordinal sorted reverse
+--   1 bit: is subject
+--   1 bit: is object
+--   1 bit: is verb
+encodeSOVInputWord :: Int -> Int -> Int -> WordOrdinals Int -> (InputWord, Int) -> Int
+encodeSOVInputWord subject object verb ordinals (iw,iwId) = wordInt'
+    where wordInt = encodeInputWord ordinals (iw,iwId)
+          wordInt' = shift wordInt 3 + shift subject 2 + shift object 1 + verb 
 
 decodeInputWord :: WordOrdinals Integer -> InputWord -> Integer -> Either Text InputWord
 decodeInputWord ordinals iw wordInt | present' /= present = Left "present bits do not match"
@@ -151,164 +201,170 @@ decodeInputWord ordinals iw wordInt | present' /= present = Left "present bits d
 ohcWordWidth :: OneHotCaps -> Int
 ohcWordWidth caps = 1 + ohcWords caps
 
-encodeOutputWord :: Int -> OneHotCaps -> Sentence Int -> Either Text Int
-encodeOutputWord wordId caps (Sentence _ modifiers _) | not present = Right 0
-                                                      | otherwise = Right wordInt
+relativeRId :: OneHotCaps -> Int -> Int -> Int
+relativeRId caps referentId wordId = max 1 . min (1+ohcWords caps) $ 1 + referentId - wordId + 1+ohcSplit caps
+
+encodeOutputModifier :: Int -> OneHotCaps -> Sentence Int -> Either Text Int
+encodeOutputModifier wordId caps (Sentence _ modifiers as) | not present || isJust analogyId = Right 0
+                                                       | otherwise = Right wordInt
     where present = Vector.any isModifier modifiers
+    
+          isSOV (Analogy _ s o v) = s == wordId || o == wordId || v == wordId
+          analogyId = Vector.find isSOV as
     
           getReferent Nothing = wordId 
           getReferent (Just (Modifier _ r)) = r
           isModifier (Modifier m _) = m == wordId
           referentId = getReferent $ Vector.find isModifier modifiers
-          relativeRId = max 1 . min (2+ohcWords caps) $ 1 + referentId - wordId + 1+ohcSplit caps
 
-          wordInt = relativeRId
+          wordInt = relativeRId caps referentId wordId
                     
-ohcAnalogyWidth :: OneHotCaps -> Int
-ohcAnalogyWidth _ = 3
-
-encodeOutputIsAnalogy :: Int -> OneHotCaps -> Sentence Int -> Either Text Int
-encodeOutputIsAnalogy wordId _ (Sentence _ modifiers analogies) | not present = Right 0
-                                                                   | otherwise = Right analogy
-    where present = Vector.any isModifier modifiers
-          isModifier (Modifier m _) = m == wordId
-    
-          isAnalogy (Analogy _ _ _ a) = a == wordId
-          isAnyAnalogy = Vector.any isAnalogy analogies
-          analogy = if isAnyAnalogy then 2 else 1
+-- First argument of encodeOutputIs controls what category the word belongs to:
+-- True False True = if verb then relative location of subject else 0
+-- False True True = if verb then relative location of object else 0
+-- True _ False = if subject then 1 else 0
+-- _ True False = if object then 1 else 0
+-- _ _ True = if verb then 1 else 0
+encodeOutputIs :: Analogy Bool -> Int -> OneHotCaps -> Sentence Int -> Either Text Int
+encodeOutputIs which wordId caps (Sentence _ _ analogies) = getCode which mAnalogy
+    where isWhich (Analogy _ _ _ True) (Analogy _ _ _ v) = v == wordId  -- Is Verb
+          isWhich (Analogy _ _ True _) (Analogy _ _ o _) = o == wordId  -- Is Object
+          isWhich (Analogy _ True _ _) (Analogy _ s _ _) = s == wordId  -- Is Subject
+          isWhich _ _ = False
+          mAnalogy = Vector.find (isWhich which) analogies
+          
+          getCode _ Nothing = Right 0
+          getCode (Analogy _ True False True) (Just (Analogy _ s _ _)) = Right (relativeRId caps s wordId) -- Is Verb of Subject s
+          getCode (Analogy _ False True True) (Just (Analogy _ _ o _)) = Right (relativeRId caps o wordId) -- Is Verb of Object o
+          getCode _ _ = Right 1
                             
 --   tensesCap blocks of:
---     7 bit: select AbstractTime start
---     7 bit: select AbstractTime end
-encodeTenses :: OneHotCaps -> Sentence Int -> Int -> Either Text Integer
-encodeTenses caps s tenseId
-    | tenseId >= ohcTenses caps = return 0
-    | otherwise = do
-        let getSentenceTense (Sentence tenses _ _) = tenses Vector.!? tenseId
-            propMaybe (Just (t1, t2)) = (Just t1, Just t2)
-            propMaybe _ = (Nothing, Nothing)
-            (mTenseStart, mTenseEnd) = propMaybe $ getSentenceTense s
-            tenseStart = encodeTense mTenseStart
-            tenseEnd = encodeTense mTenseEnd
-        rest <- encodeTenses caps s (tenseId+1)
-        return $ rest * (2::Integer)^(9+9::Integer) + tenseStart * (2::Integer)^(9::Integer) + tenseEnd
+--     9 bit: select AbstractTime start
+--     9 bit: select AbstractTime end
+encodeTense :: Sentence Int -> Int -> Bool -> Either Text Integer
+encodeTense s tenseId isStart = return tense
+        where getSentenceTense (Sentence tenses _ _) = tenses Vector.!? tenseId
+              propMaybe (Just (t1, t2)) = (Just t1, Just t2)
+              propMaybe _ = (Nothing, Nothing)
+              (mTenseStart, mTenseEnd) = propMaybe $ getSentenceTense s
+              tenseStart = encodeTenseId mTenseStart
+              tenseEnd = encodeTenseId mTenseEnd
+              tense = if isStart then tenseStart else tenseEnd
     
-encodeTense :: Maybe AbstractTime -> Integer
-encodeTense Nothing =                0
-encodeTense (Just NTMinusInfinity) = 256
-encodeTense (Just NTMinus) =         128
-encodeTense (Just NTMinusDelta) =    64
-encodeTense (Just NTPast) =          32
-encodeTense (Just NTNow) =           16
-encodeTense (Just NTFuture) =        8
-encodeTense (Just NTPlusDelta) =     4
-encodeTense (Just NTPlus) =          2
-encodeTense (Just NTPlusInfinity) =  1
-
-ohcTensesWidth :: OneHotCaps -> Int
-ohcTensesWidth caps = ohcTenses caps * 2 * length (encodeOneHotTense Nothing)
+encodeTenseId :: Maybe AbstractTime -> Integer
+encodeTenseId (Just NTMinusInfinity) = 9
+encodeTenseId (Just NTMinus) = 8
+encodeTenseId (Just NTMinusDelta) = 7
+encodeTenseId (Just NTPast) = 6
+encodeTenseId (Just NTNow) = 5
+encodeTenseId (Just NTFuture) = 4
+encodeTenseId (Just NTPlusDelta) = 3
+encodeTenseId (Just NTPlus) = 2
+encodeTenseId (Just NTPlusInfinity) = 1
+encodeTenseId _ = 0
+    
+ohcTenseWidth :: OneHotCaps -> Int
+ohcTenseWidth _ = length (encodeOneHotTense Nothing)
 
 encodeOneHotTense :: Maybe AbstractTime -> [Int]
-encodeOneHotTense Nothing =                [0,0,0,0,0,0,0,0,0]
-encodeOneHotTense (Just NTMinusInfinity) = [1,0,0,0,0,0,0,0,0]
-encodeOneHotTense (Just NTMinus) =         [0,1,0,0,0,0,0,0,0]
-encodeOneHotTense (Just NTMinusDelta) =    [0,0,1,0,0,0,0,0,0]
-encodeOneHotTense (Just NTPast) =          [0,0,0,1,0,0,0,0,0]
-encodeOneHotTense (Just NTNow) =           [0,0,0,0,1,0,0,0,0]
-encodeOneHotTense (Just NTFuture) =        [0,0,0,0,0,1,0,0,0]
-encodeOneHotTense (Just NTPlusDelta) =     [0,0,0,0,0,0,1,0,0]
-encodeOneHotTense (Just NTPlus) =          [0,0,0,0,0,0,0,1,0]
-encodeOneHotTense (Just NTPlusInfinity) =  [0,0,0,0,0,0,0,0,1]
+encodeOneHotTense (Just NTMinusInfinity) = [1,0,0,0,0,0,0,0,0,0]
+encodeOneHotTense (Just NTMinus) =         [0,1,0,0,0,0,0,0,0,0]
+encodeOneHotTense (Just NTMinusDelta) =    [0,0,1,0,0,0,0,0,0,0]
+encodeOneHotTense (Just NTPast) =          [0,0,0,1,0,0,0,0,0,0]
+encodeOneHotTense (Just NTNow) =           [0,0,0,0,1,0,0,0,0,0]
+encodeOneHotTense (Just NTFuture) =        [0,0,0,0,0,1,0,0,0,0]
+encodeOneHotTense (Just NTPlusDelta) =     [0,0,0,0,0,0,1,0,0,0]
+encodeOneHotTense (Just NTPlus) =          [0,0,0,0,0,0,0,1,0,0]
+encodeOneHotTense (Just NTPlusInfinity) =  [0,0,0,0,0,0,0,0,1,0]
+encodeOneHotTense Nothing =                [0,0,0,0,0,0,0,0,0,1]
 
-decodeSentence :: OneHotCaps -> [Int] -> [[Int]] -> [[Int]] -> Either Text (Sentence Int)
-decodeSentence caps ohTenses ohWs ohIsAnalogies = eSentence mTenses mModifiers mAnalogies
-    where mTenses = decodeTenses caps (Vector.fromList ohTenses)
-          mModifiers = decodeModifiers caps ohWs
-          mAnalogies = decodeAnalogies caps mModifiers ohIsAnalogies
-          eSentence (Just ts) (Just ms) (Just as) = Right (Sentence ts ms as)
+decodeSentence :: OneHotCaps -> [[Int]] -> [[Int]] -> [[Int]] -> [[Int]] -> Either Text (Sentence Int)
+decodeSentence caps ohTenses ohMs ohSoVs ohOoVs = eSentence mTenses mModifiers analogies
+    where mTenses = decodeTenses (map Vector.fromList ohTenses)
+          mModifiers = decodeModifiers caps ohMs
+          mVerbToSubjects = decodeRelationToWords caps ohSoVs
+          mVerbToObjects = decodeRelationToWords caps ohOoVs
+          verbToSO = combineRelationsToWords mVerbToSubjects mVerbToObjects
+          analogies = decodeAnalogies verbToSO
           eSentence Nothing _ _ = Left "Could not decode tenses"
           eSentence (Just _) Nothing _ = Left "Could not decode modifiers"
-          eSentence (Just _) (Just _) Nothing = Left "Could not decode analogies" 
+          eSentence (Just ts) (Just ms) as | null as = Left "Could not decode analogies"
+                                           | otherwise = Right (Sentence ts ms as)
 
-decodeTenses :: OneHotCaps -> Vector Int -> Maybe Tenses
-decodeTenses _ bits = mTenses mStartFirst mEndFirst mStartSecond mEndSecond
-    where mStartSecond = decodeOneHotTense . Vector.take 9 $ bits
-          mEndSecond = decodeOneHotTense . Vector.take 9 . Vector.drop 9 $ bits
-          mStartFirst = decodeOneHotTense . Vector.take 9 . Vector.drop 18 $ bits
-          mEndFirst = decodeOneHotTense . Vector.take 9 . Vector.drop 27 $ bits
+decodeTenses :: [Vector Int] -> Maybe Tenses
+decodeTenses [t1S, t1E, t2S, t2E] = mTenses mT1S mT1E mT2S mT2E
+    where mT1S = decodeOneHotTense t1S
+          mT1E = decodeOneHotTense t1E
+          mT2S = decodeOneHotTense t2S
+          mT2E = decodeOneHotTense t2E
           mTenses (Just s) (Just e) Nothing Nothing = Just $ Vector.singleton (s,e)
           mTenses (Just s1) (Just e1) (Just s2) (Just e2) = Just $ Vector.fromList [(s1,e1),(s2,e2)]
           mTenses _ _ _ _ = Nothing
+decodeTenses _ = Nothing
 
 decodeOneHotTense :: Vector Int -> Maybe AbstractTime
 decodeOneHotTense bits = decodeTenseId $ Vector.findIndex (== 1) (reverse bits)
 decodeTenseId :: Maybe Int -> Maybe AbstractTime
-decodeTenseId (Just 8) = Just NTMinusInfinity
-decodeTenseId (Just 7) = Just NTMinus
-decodeTenseId (Just 6) = Just NTMinusDelta
-decodeTenseId (Just 5) = Just NTPast
-decodeTenseId (Just 4) = Just NTNow
-decodeTenseId (Just 3) = Just NTFuture
-decodeTenseId (Just 2) = Just NTPlusDelta
-decodeTenseId (Just 1) = Just NTPlus
-decodeTenseId (Just 0) = Just NTPlusInfinity
+decodeTenseId (Just 9) = Just NTMinusInfinity
+decodeTenseId (Just 8) = Just NTMinus
+decodeTenseId (Just 7) = Just NTMinusDelta
+decodeTenseId (Just 6) = Just NTPast
+decodeTenseId (Just 5) = Just NTNow
+decodeTenseId (Just 4) = Just NTFuture
+decodeTenseId (Just 3) = Just NTPlusDelta
+decodeTenseId (Just 2) = Just NTPlus
+decodeTenseId (Just 1) = Just NTPlusInfinity
+decodeTenseId (Just 0) = Nothing
 decodeTenseId _ =        Nothing
 
 decodeModifiers :: OneHotCaps -> [[Int]] -> Maybe (Modifiers Int)
-decodeModifiers caps ohWs = Just modifiers
-    where ws = map decodeBitList ohWs
-          modifiers = Vector.fromList $ mapMaybe (decodeModifier (ohcSplit caps)) (zip [0..] ws)
+decodeModifiers caps ohMs = mModifiers modifiers
+    where modifiers = decodeRelationToWords caps ohMs
+          mModifiers Nothing = Nothing
+          mModifiers (Just mps) = Just $ Vector.fromList (map (\(m,w) -> Modifier m w) mps)
 
-decodeModifier :: Int -> (Int, Int) -> Maybe (Modifier Int)
-decodeModifier splitCount (wordId, rCode) | rCode == 0 = Nothing
-                                          | otherwise = Just $ Modifier wordId referentId
+decodeRelationToWords :: OneHotCaps -> [[Int]] -> Maybe [(Int, Int)]
+decodeRelationToWords caps ohWs = Just relations
+    where ws = map decodeBitList ohWs
+          relations = mapMaybe (decodeRelationToWord (ohcSplit caps)) (zip [0..] ws)
+
+decodeRelationToWord :: Int -> (Int, Int) -> Maybe (Int, Int)
+decodeRelationToWord splitCount (wordId, rCode) | rCode == 0 = Nothing
+                                                | otherwise = Just $ (wordId, referentId)
     where referentId = rCode + wordId - 1 - splitCount - 1
 
+combineRelationsToWords :: Maybe [(Int,Int)] -> Maybe [(Int,Int)] -> [(Int,Int,Int)]
+combineRelationsToWords (Just fs) (Just ss) = mapMaybe (combineRelationToWords fs) ss
+combineRelationsToWords _ _ = []
 
-getReferentId :: Maybe Int -> Modifiers Int -> Maybe Int
-getReferentId Nothing _ = Nothing
-getReferentId (Just mId) ms = (\(Modifier _ rId) -> Just rId) =<< Vector.find isModifier ms
-    where isModifier (Modifier m _) = m == mId
+combineRelationToWords :: [(Int, Int)] -> (Int,Int) -> Maybe (Int,Int,Int)
+combineRelationToWords wrs (wId, r2) = construct mFound
+    where construct Nothing = Nothing
+          construct (Just (_, r1)) = Just (wId, r1, r2)
+          mFound = find (\(w,_) -> w == wId) wrs
 
-getModifierIds :: Maybe Int -> Modifiers Int -> [Int]
-getModifierIds Nothing _ = []
-getModifierIds (Just rId) ms = map (\(Modifier mId _) -> mId) $ filter isReferent (Vector.toList ms)
-    where isReferent (Modifier _ r) = r == rId
+decodeAnalogies :: [(Int,Int,Int)] -> Analogies Int
+decodeAnalogies vSOs = Vector.fromList $ map (decodeAnalogy tIdFn) vSOs
+    where tIdFn s = fst $ fromMaybe (0,0) (find (\(_,s') -> s == s') subjects)
+          subjects = zip [0..] (nub $ map (\(_,s,_) -> s) vSOs)
 
-decodeAnalogies :: OneHotCaps -> Maybe (Modifiers Int) -> [[Int]] -> Maybe (Analogies Int)
-decodeAnalogies _ Nothing _ = Nothing
-decodeAnalogies _ (Just ms) ohAs = Just analogies
-    where analogies = Vector.fromList $ mapMaybe (decodeAnalogy subjects ms) (zip [0..] ohAs)
-          subjects = map (\(Modifier _ sId) -> sId) . filter hasReferrer . filter isSelfReferent $ Vector.toList ms
-              where isSelfReferent (Modifier mId rId) = mId == rId
-                    hasReferrer (Modifier _ rId) = not . null  . getModifierIds (Just rId) . filter (not . isSelfReferent) $ ms
-
-decodeAnalogy :: [Int] -> Modifiers Int -> (Int, [Int]) -> Maybe (Analogy Int)
-decodeAnalogy [] _ _ = Nothing
-decodeAnalogy subjects ms (wordId, ohA) = mAnalogy mSubject mO mA
-    where idSubjects :: [(Int,Int)]
-          idSubjects = zip [0..] subjects
-          mA = if decodeBitList ohA == 2 then Just wordId else Nothing
-          mO = getReferentId (Just wordId) ms
-          mRef2 = getReferentId mO ms
-          mSubject :: Maybe (Int,Int)
-          mSubject = find (\(_,s) -> Just s == mRef2) idSubjects
-          mAnalogy :: Maybe (Int,Int) -> Maybe Int -> Maybe Int -> Maybe (Analogy Int)
-          mAnalogy (Just (tId,s)) (Just o) (Just a) = Just $ Analogy tId s o a
-          mAnalogy _ _ _ = Nothing
+decodeAnalogy :: (Int -> Int) -> (Int,Int,Int) -> Analogy Int
+decodeAnalogy tIdFn (v,s,o) = Analogy (tIdFn s) s o v
           
 data WordBitGroup = WordBitGroup Int Int Int Int Int (Vector Int) (Vector Int) deriving (Eq, Show, Read)
 data TenseBitGroup = TenseBitGroup (Vector Int) (Vector Int) deriving (Eq, Show, Read)
 
 decodeEncodeOneHotOutput :: OneHotCaps -> Sentence Int -> Int -> Either Text (Sentence Int, Bool)
 decodeEncodeOneHotOutput caps s wordCount = do
-    encodings <- mapM (\wId -> encodeOutputWord wId caps s) [0..(wordCount-1)]
-    isAnalogies <- mapM (\wId -> encodeOutputIsAnalogy wId caps s) [0..(wordCount-1)]
-    tenses <- encodeTenses caps s 0   
+    encodings <- mapM (\wId -> encodeOutputModifier wId caps s) [0..(wordCount-1)]
+    subjectOfVerbs <- mapM (\wId -> encodeOutputIs (Analogy 0 True False True) wId caps s) [0..(wordCount-1)]
+    objectOfVerbs <- mapM (\wId -> encodeOutputIs (Analogy 0 False True True) wId caps s) [0..(wordCount-1)]
+    tenses <- mapM (\(tId,isStart) -> encodeTense s tId isStart) [(0, True), (0, False), (1, True), (1, False)]
     let ohEncodings = map (padOrdinal (ohcWordWidth caps) . encodeBitList) encodings
-        ohIsAnalogies = map (padOrdinal (ohcAnalogyWidth caps) . encodeBitList) isAnalogies
-        ohTenses = padOrdinal (ohcTensesWidth caps) . encodeBitList $ tenses
-    rs <- decodeSentence caps ohTenses ohEncodings ohIsAnalogies
+        ohSubjectOfVerbs = map (padOrdinal (ohcWordWidth caps) . encodeBitList) subjectOfVerbs
+        ohObjectOfVerbs = map (padOrdinal (ohcWordWidth caps) . encodeBitList) objectOfVerbs
+        ohTenses = map (padOrdinal (ohcTenseWidth caps) . encodeBitList . ((2::Int) ^)) tenses
+    rs <- decodeSentence caps ohTenses ohEncodings ohSubjectOfVerbs ohObjectOfVerbs
     return (rs, rs == s)
     
 -- BasicPhrase has list of modifiers, modifiees, modified word, and list of extra words for structural grammar
@@ -407,19 +463,17 @@ buildLogicalSentence t1 t2 (CompoundSentence s1 _ s2) = mergeLogicalSentence ls1
               = Sentence tenses (m1s Vector.++ m2s) (a1s Vector.++ a2s)
 buildLogicalSentence t1 _ (SimpleSentence (BasicSentence subject analogyObjects)) = Sentence tenses modifiers analogies
     where tenses = Vector.singleton t1
-          modifiers = Vector.fromList $ concatMap (newModifiers (subjectId subject)) (subject:analogyObjects)
+          modifiers = Vector.fromList $ concatMap newModifiers (subject:analogyObjects)
           analogies = Vector.fromList $ concatMap (newAnalogies (subjectId subject)) analogyObjects
           subjectId (SubjectP (_,_,s,_)) = Just s
           subjectId _ = Nothing
-          newModifiers _ (SubjectP (ms,mees,s,_)) = zipWith Modifier (s:ms) (s:mees)
-          newModifiers s (PrimaryAnalogyObjectP t a o) = newModifiers s (AnalogyObjectP t a o)
-          newModifiers (Just s) (AnalogyObjectP _ (ams,amees,a,_) (oms,omees,o,_)) =
-              modifierMs ++ analogyMs
-                  where modifierMs = zipWith Modifier (ams++oms) (amees++omees)
-                        analogyMs = [Modifier o s, Modifier a o]
-          newModifiers _ _ = []
-          newAnalogies s (PrimaryAnalogyObjectP tId a o) = newAnalogies s (AnalogyObjectP tId a o)
-          newAnalogies (Just s) (AnalogyObjectP tId (_,_,a,_) (_,_,o,_)) = [Analogy tId s o a]
+          newModifiers (SubjectP (ms,mees,_,_)) = zipWith Modifier ms mees
+          newModifiers (PrimaryAnalogyObjectP t v o) = newModifiers (AnalogyObjectP t v o)
+          newModifiers (AnalogyObjectP _ (vms,vmees,_,_) (oms,omees,_,_)) =
+              zipWith Modifier (vms++oms) (vmees++omees)
+          newModifiers _ = []
+          newAnalogies s (PrimaryAnalogyObjectP tId v o) = newAnalogies s (AnalogyObjectP tId v o)
+          newAnalogies (Just s) (AnalogyObjectP tId (_,_,v,_) (_,_,o,_)) = [Analogy tId s o v]
           newAnalogies _ _ = []
        
 packSentence :: LinearPhrase a -> Sentence Int -> Maybe (Sentence Int)
