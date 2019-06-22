@@ -30,7 +30,7 @@ readDefaultSetting d var settings = maybe d (readDefault d) $ Map.lookup var s
 -- "{ \"path\":\"\"\"\",
 --    \"count\": \"3\",
 --    \"stage\": \"B\" }"
-getDefaultEnv :: Read a => a -> Text -> IO a
+getDefaultEnv :: (Read a, Show a) => a -> Text -> IO a
 getDefaultEnv d var = do
     result <- tryIO $ getEnv "ANALYTIC_SETTINGS"
     let readA (Left _) = d
@@ -42,7 +42,7 @@ getDefaultEnv d var = do
                      split (== ',') . 
                      filter (/= '}') . 
                      filter (/= '{') . pack
-    return $ readA result
+    return $ traceShow (readA result) (readA result)
 
 encodeModifierExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> [(Either Text [Int], Either Text Int)]
 encodeModifierExamples caps ordinals (is, ls) = map encodePair wIds
@@ -87,6 +87,7 @@ lazyAppendFileUtf8 fp = appendFileUtf8s fp . toChunks
 writeOutput :: Text -> IO ()
 writeOutput "A" = do
     path <- getDefaultEnv "/home/data/" "path"
+    --putStrLn $ "Found path: " ++ path
     writeFileExamples (absPath path "samples.txt") (absPath path "wordLists.txt") 
 writeOutput "B" = do
     path <- getDefaultEnv "/home/data/" "path"
