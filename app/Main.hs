@@ -29,7 +29,7 @@ readDefaultSetting d var settings = maybe d (readDefault d) $ Map.lookup var s
 -- "ANALYTIC_SETTINGS" will look something like: 
 -- "{ \"path\":\"\"\"\",
 --    \"count\": \"3\",
---    \"stage\": \"B\" }"
+--    \"stage\": \"\\\"B\\\"\" }"
 getDefaultEnv :: (Read a, Show a) => a -> Text -> IO a
 getDefaultEnv d var = do
     result <- tryIO $ getEnv "ANALYTIC_SETTINGS"
@@ -39,10 +39,11 @@ getDefaultEnv d var = do
                                (\ts -> take (length ts - 1) ts) . 
                                drop 1 . 
                                split (== '"') ) . split (== ':')) .
-                     split (== ',') . 
+                     split (== ',') .
+                     filter (/= '\\') .
                      filter (/= '}') . 
                      filter (/= '{') . pack
-    return $ traceShow (readA result) (readA result)
+    return $ readA result
 
 encodeModifierExamples :: OneHotCaps -> WordOrdinals Int -> (InputSentence, Sentence Int) -> [(Either Text [Int], Either Text Int)]
 encodeModifierExamples caps ordinals (is, ls) = map encodePair wIds
