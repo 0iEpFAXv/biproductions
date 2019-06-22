@@ -85,7 +85,9 @@ lazyAppendFileUtf8 :: (MonadIO m) => FilePath -> LT.Text -> m ()
 lazyAppendFileUtf8 fp = appendFileUtf8s fp . toChunks
 
 writeOutput :: Text -> IO ()
-writeOutput "A" = writeFileExamples "/home/data/samples.txt" "/home/data/wordLists.txt" 
+writeOutput "A" = do
+    path <- getDefaultEnv "/home/data/" "path"
+    writeFileExamples (absPath path "samples.txt") (absPath path "wordLists.txt") 
 writeOutput "B" = do
     path <- getDefaultEnv "/home/data/" "path"
     (Just linearizer) <- readLinearizer (absPath path "samples.txt") (absPath path "possLists.txt")
